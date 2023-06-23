@@ -1,6 +1,6 @@
 # Bluesky Proposals
 
-This repository is an informal collection of proposals which we have published to collect community feedback. It's used as-needed and has no official process. External proposals are not requested *yet*.
+This repository is an informal collection of proposals which we have published for feedback. It's used as-needed and has no official process. External proposals are not requested *yet*.
 
 Please open issues and PRs to discuss the content.
 
