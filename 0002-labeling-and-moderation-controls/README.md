@@ -165,7 +165,7 @@ Spam covers content that doesn’t add to the conversation.
 
 * **spam**. Repeat, low-quality messages which are clearly not designed to add to a conversation or space.
 * **clickbait**. Low-quality content that’s designed to get users to open an external link by appearing more engaging than it is.
-* **shill: **Over-enthusiastic promotion of a technology, product, or service, especially when there is a financial conflict of interest.
+* **shill**. Over-enthusiastic promotion of a technology, product, or service, especially when there is a financial conflict of interest.
 * **promotion**: Advertising or blunt marketing of a commercial service or product.
 
 
