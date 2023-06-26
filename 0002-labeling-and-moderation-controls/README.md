@@ -38,12 +38,12 @@ To control a Labeling Service, the Bluesky team has created an application that�
 
 Labeling Services declare which labels they publish along with a policy document so that users know what to expect and how to configure their applications. Running a Labeling Service will require some technical know-how, much like running Custom Feeds does now. Depending on the demand, we may look for ways to make them easier to run.
 
-The term “Labeling Service” is a bit technical and we should look for a better name in the interface. Some candidates are _Labeler_, _Moderator_,_ Moderation Authority_, and _Moderation Service_.
+The term “Labeling Service” is a bit technical and we should look for a better name in the interface. Some candidates are _Labeler_, _Moderator_,_Moderation Authority_, and _Moderation Service_.
 
 
 ## Reporting content
 
-Users can report content and accounts that they think violate some policy. The report includes policy they feel was violatedthe label or the label “category” that they believe should be applied and an optional description field. Reports are sent to the user’s saved Labeling Services.
+Users can report content and accounts that they think violate some policy. The report includes policy they feel was violated the label or the label “category” that they believe should be applied and an optional description field. Reports are sent to the user’s saved Labeling Services.
 
 Labeling Services review and act on reports at their own discretion. They may choose to only accept reports from a specific set of users, and they may choose to ignore reports from any user that abuses the system.
 
@@ -108,7 +108,7 @@ Content which is sexual in nature. These designations are sometimes controversia
 Content which is violent or deeply disturbing by nature.
 
 * **nsfl**. “Not Suitable For Life.” This label covers graphic visual images like the infamous “goatse” (don’t look it up).
-* **corpse**.** **Visual image of a dead human body in any context. Includes war images, hanging, funeral caskets. Does not include all figurative cases (cartoons), but can include realistic figurative images or renderings. 
+* **corpse**. Visual image of a dead human body in any context. Includes war images, hanging, funeral caskets. Does not include all figurative cases (cartoons), but can include realistic figurative images or renderings. 
 * **gore**. Intended for shocking visual images, typically involving blood or visible wounds.
 * **torture**. Depictions of torture of a human or animal (animal cruelty).
 * **self-harm**. A visual depiction (photo or figurative) of cutting, suicide, or similar.
@@ -165,8 +165,8 @@ Spam covers content that doesn’t add to the conversation.
 
 * **spam**. Repeat, low-quality messages which are clearly not designed to add to a conversation or space.
 * **clickbait**. Low-quality content that’s designed to get users to open an external link by appearing more engaging than it is.
-* **shill: **Over-enthusiastic promotion of a technology, product, or service, especially when there is a financial conflict of interest.
-* **promotion**: Advertising or blunt marketing of a commercial service or product.
+* **shill**. Over-enthusiastic promotion of a technology, product, or service, especially when there is a financial conflict of interest.
+* **promotion**. Advertising or blunt marketing of a commercial service or product.
 
 
 ### Misinformation

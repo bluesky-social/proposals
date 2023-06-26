@@ -36,7 +36,7 @@ Our current thinking is that hashtags can be inline with the post so that they c
 
 We can’t keep breaking screen readers. Hashtags need to support spaces.
 
-When tags are placed in a separate field this is fairly easy. To handle them inline, we propose using an underscore (‘_’) to indicate the space. The composer would convert the underscores to actual spaces before uploading.
+When tags are placed in a separate field this is fairly easy. To handle them inline, we propose using an underscore (`_`) to indicate the space. The composer would convert the underscores to actual spaces before uploading.
 
 
 ## Use curated tag search results
