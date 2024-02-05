@@ -9,3 +9,5 @@ Please open issues and PRs to discuss the content.
 ## [0002 Labeling and Moderation Controls](./0002-labeling-and-moderation-controls)
 
 ## [0003 Hashtags](./0003-hashtags/)
+
+## [0004 OAuth](./0004/oauth/)
