@@ -10,4 +10,4 @@ Please open issues and PRs to discuss the content.
 
 ## [0003 Hashtags](./0003-hashtags/)
 
-## [0004 OAuth](./0004/oauth/)
+## [0004 OAuth](./0004-oauth/)

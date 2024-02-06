@@ -1,11 +1,6 @@
-# Proposal: OAuth 2.0 for the AT protocol
+# 0004 OAuth 2.0 for the AT Protocol
 
-Matthieu Sieben.
-Devin Ivy.
-Daniel Holmgren.
-Bluesky.
-
-February 2024
+_This proposal written by Matthieu Sieben, Devin Ivy, and Daniel Holmgren, on behalf of Bluesky. First posted in February 2024._
 
 ## Introduction
 
