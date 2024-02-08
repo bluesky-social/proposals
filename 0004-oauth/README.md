@@ -97,7 +97,7 @@ The general framework is described in figure 1.
     ├───────────────────────────┬───────────────────────────────┼────────────────►│
     │                           │                               │                 ├──┐
     │                           │                               │                 │  │ Verification
-    │ User authenticates themself on AS and approves the request (10)              │◄─┘ (9)
+    │ User authenticates themself on AS and approves the request (10)             │◄─┘ (9)
     │◄──────────────────────────┬───────────────────────────────┬────────────────►│
     │                           │                               │                 │
     │ User redirected to redirect_uri (11)                      │                 │
