@@ -97,7 +97,7 @@ The general framework is described in figure 1.
     ├───────────────────────────┬───────────────────────────────┼────────────────►│
     │                           │                               │                 ├──┐
     │                           │                               │                 │  │ Verification
-    │ User authenticates himself on AS and approves the request (10)              │◄─┘ (9)
+    │ User authenticates themshelf on AS and approves the request (10)              │◄─┘ (9)
     │◄──────────────────────────┬───────────────────────────────┬────────────────►│
     │                           │                               │                 │
     │ User redirected to redirect_uri (11)                      │                 │
@@ -490,7 +490,7 @@ The client will then redirect the user to the authorize endpoint using the `requ
 https://bsky.social/oauth/authorize?client_id=bsky.app&request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Abwc4JK-ESC0w8acc191e-Y1LTC2
 ```
 
-The AS will then authenticate the user and ask him to approve the request. Silent sign-on will only be used if the user already has a session on the AS with the same DID as the one defined in the `login_hint` parameter of the PAR request.
+The AS will then authenticate the user and ask them to approve the request. Silent sign-on will only be used if the user already has a session on the AS with the same DID as the one defined in the `login_hint` parameter of the PAR request.
 
 Upon successful authorization by the user, the AS will issue an authorization code and redirect the user back to the client's `redirect_uri`.
 
