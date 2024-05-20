@@ -195,17 +195,31 @@ When using `localhost` as client ID, the AS will not be able to resolve the clie
 ```json
 {
   "client_id": "localhost",
-  "client_name": "Native atproto client",
+  "client_name": "Loopback atproto client",
   "client_uri": "http://localhost/",
-  "scope": "profile offline_access",
-  "response_types": ["code", "code id_token"],
-  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "grant_types": ["authorization_code"],
   "redirect_uris": ["http://127.0.0.1/", "http://[::1]/"],
   "token_endpoint_auth_method": "none",
   "application_type": "native",
   "dpop_bound_access_tokens": true
 }
 ```
+
+> Note: the client_name is up to the provider implementation
+
+OpenID compliant server implementation are encouraged to add the `code id_token` response types as well:
+
+```json
+{
+  // [props omitted for clarity]
+
+  "scope": "profile openid",
+  "response_types": ["code", "code id_token"],
+}
+```
+
+> Note: OpenID support should be inferred by the presence of an `openid` scope in the server metadata.
 
 ### Server Metadata
 
