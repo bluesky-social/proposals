@@ -42,13 +42,24 @@ The goals we try to achieve through this framework are:
 
 ## Framework
 
-This framework builds on top of the [OAuth 2.0 Authorization Framework][RFC6749], the [OAuth2.1 draft][DRAFT-OAUTH-V2-1], the [OAuth 2.0 Security Best Current Practice][DRAFT-OAUTH-SECURITY-TOPICS] and the [OAuth 2.0 for Browser-Based Apps (BCP draft)][DRAFT-OAUTH-BROWSER-BASED-APPS].
+In addition to the identity resolution mechanisms specified by [[ATPROTO]], the current framework builds on top of the following specifications and drafts:
 
-When a client needs to obtain credentials to interact with a user's PDS, it must initiate an authorization flow with the PDS's Authorization Server (AS). In order to determine the AS's authorization metadata, the client must first resolve the PDS URI from the user's handle (see [ATPROTO]). Once the PDS url is known (e.g. `https://shimeji.us-east.host.bsky.network`), the [Authorization Server Metadata][RFC8414] endpoint (`<PDS_ORIGIN>/.well-known/oauth-authorization-server`) will allow the client to obtain all the information it needs to initiate an OAuth2 authorization flow (see the [server metadata](#server-metadata) section below).
+- [OAuth 2.0 Protected Resource Metadata draft][DRAFT-OAUTH-RESOURCE-METADATA]
+- [OAuth Client ID Metadata Document draft][DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT]
+- [OAuth 2.0 Dynamic Client Registration Protocol][RFC7591] (Only for defining the client metadata document, not for the registration method)
+- [OAuth2.1 draft][DRAFT-OAUTH-V2-1] (revision of [OAuth 2.0 Authorization Framework][RFC6749])
+  - [Proof Key for Code Exchange][RFC7636]
+- [Demonstrating Proof of Possession][RFC9449]
+- [OAuth 2.0 Security Best Current Practice][DRAFT-OAUTH-SECURITY-TOPICS]
+- [OAuth 2.0 for Browser-Based Apps (BCP draft)][DRAFT-OAUTH-BROWSER-BASED-APPS]
+- [JWT for Assertion Framework protocol][RFC7523] (For authenticating clients)
+- [Pushed Authorization Requests][RFC9126]
 
-Clients do not need to be pre-registered in the Authorization Server. Instead, the Authorization Server will dynamically load the client metadata from the client_id, during an authorization request, as described in the [client metadata](#client-metadata) section. The client metadata is a JSON file that contains the client's metadata (name, logo, allowed redirect URIs, expected scopes, JWKS, etc.). The content of that document is based on the [OAuth 2.0 Dynamic Client Registration Protocol][RFC7591] and [OAuth 2.0 Dynamic Client Registration Management Protocol][RFC7592] specifications.
+When a client needs to obtain credentials to interact with a user's PDS, it must initiate an authorization flow with the PDS's Authorization Server (AS). In order to determine the AS's authorization metadata, the client must first resolve the PDS's URI from the user's handle (see [ATPROTO]). Once the PDS URI is known (e.g. `https://shimeji.us-east.host.bsky.network`), the [protected resource metadata][DRAFT-OAUTH-RESOURCE-METADATA] document will allow the client to obtain the Authorization Server Issuer from the `authorization_servers` field. The [Authorization Server Metadata][RFC8414] endpoint (`<PDS_ORIGIN>/.well-known/oauth-authorization-server`) will allow the client to obtain all the information it needs to initiate an OAuth2 authorization flow (see the [server metadata](#server-metadata) section below).
 
-Since clients do not register themselves with the Authorization Server, they will not exchange a client secret with the AS. Instead, they will use a public/private keypair to authenticate themselves, using the `urn:ietf:params:oauth:grant-type:jwt-bearer` grant type as described in [JWT for Assertion Framework protocol][RFC7523]. The client will expose its public keys through the `jwks` & `jwks_uri` client metadata. Since browser & native apps clients are unable to use private keys in order to authenticate themselves, these will act as public clients.
+Clients do not need to be pre-registered with the Authorization Server. Instead, the Authorization Server will dynamically load the [client metadata document][DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT] from the `client_id`, during an authorization request, as described in the [client metadata](#client-metadata) section. The client metadata is a JSON file that contains the client's metadata (name, logo, allowed redirect URIs, expected scopes, JWKS, etc.). The content of that document is based on the [OAuth 2.0 Dynamic Client Registration Protocol][RFC7591] and [OAuth 2.0 Dynamic Client Registration Management Protocol][RFC7592] specifications.
+
+Since clients do not pre-register themselves with the Authorization Server, they will not exchange a client secret with the AS. Instead, they will use a public/private keypair to authenticate themselves, using the `urn:ietf:params:oauth:grant-type:jwt-bearer` grant type as described in [JWT for Assertion Framework protocol][RFC7523]. The client will expose its public keys through the `jwks` & `jwks_uri` client metadata. Since browser & native apps clients are unable to use private keys in order to authenticate themselves, these will act as public clients.
 
 This framework requires the following specifications to be used during the authorization flow:
 
@@ -76,9 +87,12 @@ The general framework is described in figure 1.
     │                           │  │ Client resolves PDS URL (2)│                 │
     │                           │◄─┘                            │                 │
     │                           │                               │                 │
-    │                           │ GET /.well-known         (3)  │                 │
-    │                           │  /oauth-authorization-server  │                 │
+    │                        (3)│ GET /.well-known              │                 │
+    │                           │  /oauth-protected-resource    │                 │
     │                           ├──────────────────────────────►│                 │
+    │                           │ GET /.well-known              │                 │
+    │                           │  /oauth-authorization-server  │                 │
+    │                           ├───────────────────────────────┼────────────────►│
     │                           │                               │                 │
     │                           ├──┐                            │                 │
     │                           │  │ Validate issuer (4)        │                 │
@@ -117,7 +131,7 @@ The general framework is described in figure 1.
 
 Figure 1.: Authorization flow for a client. Note that neither the client nor the authorization server necessarily know about each other before the authorization flow is initiated.
 
-First step (1) is to ask, through the client, the user for their [ATPROTO] `@handle`, or, should they have forgotten their handle, their PDS or Entryway's URL (e.g. `bsky.social`). The client will then load (3) and validate (4) the Authorization Server Metadata using the method described [below](#server-metadata).
+First step (1) is for the client to ask the user for their [ATPROTO] `@handle`, or, should they have forgotten their handle, their PDS or Entryway's URL (e.g. `bsky.social`). The client will then fetch (3) and validate (4) the Authorization Server Metadata using the method described [below](#server-metadata).
 
 The client will then build (5) the authorization URL using [PAR][RFC9126] & [PKCE][RFC7636]. This will cause the Authorization Server to load and validate the client metadata (6) using the method described [below](#client-metadata). Once the authorization request is successfully created, the end user will be redirected to the authorize endpoint (7, 8).
 
@@ -153,15 +167,7 @@ Authorization Server **must not** accept client IDs that are not compliant with 
 
 ### Client metadata
 
-Instead of relying on dynamic client registration, clients will be automatically/lazily registered by the AS when they first initiate an authorization flow. In order to do so, the AS will need to be able to resolve the the client metadata from the client's [Global identifier](#global-client-identifier).
-
-In order to load the client metadata, the AS will:
-
-1. Build the "client url" by prepending `https://` to the client ID.
-2. Build the "client metadata url" by appending `/.well-known/oauth-client-client` to the client url.
-3. Fetch the JSON document from the "client metadata url".
-4. Load any related resources (such as the document reference by the `jwks_uri` metadata)
-5. Verify that the retrieved metadata and JWKS are valid. Any client metadata that does not satisfy this specification **must** be rejected by the AS.
+Instead of relying on dynamic client registration, clients will be automatically/lazily registered by the AS when they first initiate an authorization flow. In order to do so, the AS will need to be able to resolve the the client metadata document as described by [[DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT]].
 
 In addition to be conformant with the Client Metadata described in [RFC7591], the following rules also apply to the client metadata document. These rules **must** be enforced by the AS.
 
@@ -190,69 +196,44 @@ In addition to be conformant with the Client Metadata described in [RFC7591], th
 
 #### Client metadata for local development
 
-When using `localhost` as client ID, the AS will not be able to resolve the client metadata using the method described above. Instead, the Authorization Server will use the following client metadata:
+When a client ID uses "`http://localhost`" as origin, the AS will not be able to resolve the client metadata using the method described above. Instead, the Authorization Server will derive the client metadata document from the client ID.
 
-```json
-{
-  "client_id": "localhost",
-  "client_name": "Loopback atproto client",
-  "client_uri": "http://localhost/",
-  "response_types": ["code"],
-  "grant_types": ["authorization_code"],
-  "redirect_uris": ["http://127.0.0.1/", "http://[::1]/"],
-  "token_endpoint_auth_method": "none",
-  "application_type": "native",
-  "dpop_bound_access_tokens": true
+Given a Client ID with the following format: `^http://localhost(?<pathname>\/[^?]*)(<searchParams>?[^#]*)?$`, the following metadata document will be used (authoritative code bellow):
+
+```js
+const { protocol, origin, pathname, searchParams } = new URL(clientId)
+if (origin === 'http://localhost') {
+  return {
+    client_id: clientId,
+    client_name: 'Loopback client',
+    response_types: ['code id_token', 'code'],
+    grant_types: ['authorization_code', 'implicit', 'refresh_token'],
+    scope: 'openid profile offline_access',
+    redirect_uris: searchParams.has('redirect_uri')
+      ? searchParams.getAll('redirect_uri')
+      : ['127.0.0.1', '[::1]'].map(
+          (ip) =>
+            Object.assign(new URL(pathname, origin), { hostname: ip }).href
+        ),
+    token_endpoint_auth_method: 'none',
+    application_type: 'native',
+    dpop_bound_access_tokens: true,
+  }
 }
-```
 
-> Note: the client_name is up to the provider implementation
-
-OpenID compliant server implementation are encouraged to add the `code id_token` response types as well:
-
-```json
-{
-  // [props omitted for clarity]
-
-  "scope": "profile openid",
-  "response_types": ["code", "code id_token"],
+if (protocol === 'https:') {
+  // [DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT]
+  return fetchAndValidateMetadataDocument(clientId)
 }
-```
 
-> Note: OpenID support should be inferred by the presence of an `openid` scope in the server metadata.
+// else throw an error
+```
 
 ### Server Metadata
 
-In order to retrieve the server metadata, the client will build the metadata URL from the PDS URL (e.g. `https://bsky.social`) and fetch it (e.g. `https://bsky.social/.well-known/oauth-authorization-server`). The client **must** follow any redirection that occurs during this process.
+In order to retrieve the AS metadata, the client will first need to obtain the PDS URL (using [ATPROTO]'s resolution mechanism). The PDS URL (e.g. `https://pds.example`) being a resource server, the client will need to fetch the [protected resource metadata document][DRAFT-OAUTH-RESOURCE-METADATA] (by appending `/.well-known/oauth-protected-resource` to the PDS URL). That document MUST contain a single item in the `authorization_servers` array. This issuer identifier (e.g. `https://entryway.example`) will allow the client to fetch the Authorization Server Metadata (By appending `/.well-known/oauth-authorization-server` to the issuer). All the documents **must** be returned with a 200 HTTP status code and a `application/json` content-type. Any other status code or content-type **must** result in an error.
 
-If the user does not know the PDS URL, it can be resolved from the user's `@handle` and [DID] document. One way of doing this is to use the HTTP and DNS methods described in [ATPROTO]. Another, which is more convenient for browser based clients (as they are not able to make DNS requests), is to use a public API that resolves the user's handle to its PDS URL. Bluesky provides such an API:
-
-```http
-GET https://api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=<handle_here>
-```
-
-The response is a JSON object containing user's DID
-
-```json
-{ "did": "did:plc:123" }
-```
-
-This DID can then be used to obtain the PDS's location using the [DID-PLC] or [DID-WEB] method:
-
-```json
-{
-  // [omitted]
-  "service": [
-    {
-      "id": "#atproto_pds",
-      "type": "AtprotoPersonalDataServer",
-      "serviceEndpoint": "https://shimeji.us-east.host.bsky.network"
-    }
-  ]
-}
-```
-
-By building the metadata URL (`https://shimeji.us-east.host.bsky.network/.well-known/oauth-authorization-server`), and following any redirects, the client can obtain the PDS's [Authorization Server Metadata][RFC8414].
+Note that a user's `@handle` or DID is _not_ required to initiate this flow. The client can cut short the "handle -> did -> pds url -> authorisation server url" process by starting at any step (depending on user input). For example, if the client detects that the user used an HTTPS url as input, it can try to obtain the [protected resource metadata document][DRAFT-OAUTH-RESOURCE-METADATA], and continue the resolution process from there. If that fails, the client can then try to interpret the input as being an authorization server's issuer in order to obtain the metadata document.
 
 Once the client retrieved the Authorization Server Metadata, it **must** verify the following items. Any authorization flow with an AS not compliant with these rules **must** be rejected by the client.
 
@@ -270,6 +251,9 @@ Once the client retrieved the Authorization Server Metadata, it **must** verify 
 - `require_pushed_authorization_requests` **must** be set to `true`.
 - `dpop_signing_alg_values_supported` **must** be set and contain `ES256`.
 - `require_request_uri_registration`, if present, **must** be `true`.
+- `client_id_metadata_document_supported` **must** be set to `true` (per [[DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT]]).
+
+The client **must** also comply with the definitions of these fields, as defined by their authoritative specifications.
 
 ### Authorization Server requirements
 
@@ -713,6 +697,8 @@ While technically possible it's not recommended at the current time. Clients att
 [DID-WEB]: https://w3c-ccg.github.io/did-method-web/ 'did:web Method Specification'
 [DID-PLC]: https://web.plc.directory/spec/v0.1/did-plc 'did:plc Method Specification'
 [INDIE-AUTH]: https://indieauth.spec.indieweb.org 'IndieAuth'
+[DRAFT-OAUTH-RESOURCE-METADATA]: https://datatracker.ietf.org/doc/draft-ietf-oauth-resource-metadata/
+[DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT]: http://drafts.aaronpk.com/draft-parecki-oauth-client-id-metadata-document/draft-parecki-oauth-client-id-metadata-document.html
 [DRAFT-AUTHORIZATION-SERVER-DISCOVERY]: https://datatracker.ietf.org/doc/html/draft-parecki-authorization-server-discovery-00 'Draft: Authorization Server Discovery'
 [DRAFT-OAUTH-ATTESTATION-BASED-CLIENT-AUTH]: https://datatracker.ietf.org/doc/html/draft-ietf-oauth-attestation-based-client-auth-01 'Draft: Attestation-Based Client Authentication'
 [DRAFT-OAUTH-BROWSER-BASED-APPS]: https://datatracker.ietf.org/doc/html/draft-ietf-oauth-browser-based-apps 'Draft: Oauth browser based apps'
