@@ -402,7 +402,7 @@ In this architecture, the authorization flow works as follows:
 - The frontend app uses the access token to access the resource server (PDS) by providing both the access token and a DPoP proof, generated using its keypair.
 - When the tokens need to be refreshed, the frontend app calls the backend again, providing the session-id cookie and a `dpop` proof. The backend then uses the refresh token to obtain a new access token, and returns it to the frontend app.
 
-### Progressive Web App (PWA)
+### Single Page Application (SPA)
 
 In this architecture, the client is a frontend only app. It can be a mobile app, an app hosted on github pages, or any other app that does not rely on a dedicated backend.
 
