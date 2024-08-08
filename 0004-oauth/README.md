@@ -42,7 +42,7 @@ The goals we try to achieve through this framework are:
 
 ## Framework
 
-In addition to the identity resolution mechanisms specified by [[ATPROTO]], the current framework builds on top of the following specifications and drafts:
+In addition to the identity resolution mechanisms specified by [ATPROTO], the current framework builds on top of the following specifications and drafts:
 
 - [OAuth 2.0 Protected Resource Metadata draft][DRAFT-OAUTH-RESOURCE-METADATA]
 - [OAuth Client ID Metadata Document draft][DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT]
@@ -55,7 +55,7 @@ In addition to the identity resolution mechanisms specified by [[ATPROTO]], the 
 - [JWT for Assertion Framework protocol][RFC7523] (For authenticating clients)
 - [Pushed Authorization Requests][RFC9126]
 
-When a client needs to obtain credentials to interact with a user's PDS, it must initiate an authorization flow with the PDS's Authorization Server (AS). In order to determine the AS's authorization metadata, the client must first resolve the PDS's URI from the user's handle (see [ATPROTO]). Once the PDS URI is known (e.g. `https://shimeji.us-east.host.bsky.network`), the [protected resource metadata][DRAFT-OAUTH-RESOURCE-METADATA] document will allow the client to obtain the Authorization Server Issuer from the `authorization_servers` field. The [Authorization Server Metadata][RFC8414] endpoint (`<PDS_ORIGIN>/.well-known/oauth-authorization-server`) will allow the client to obtain all the information it needs to initiate an OAuth2 authorization flow (see the [server metadata](#server-metadata) section below).
+When a client needs to obtain credentials to interact with a user's PDS, it must initiate an authorization flow with the PDS's Authorization Server (AS). In order to determine the AS's authorization metadata, the client must first resolve the PDS's URI from the user's handle (see [ATPROTO]). Once the PDS URI is known (e.g. `https://pds.example.com`), the [protected resource metadata][DRAFT-OAUTH-RESOURCE-METADATA] document will allow the client to obtain the Authorization Server Issuer from the `authorization_servers` field. The [Authorization Server Metadata][RFC8414] endpoint (`<PDS_ORIGIN>/.well-known/oauth-authorization-server`) will allow the client to obtain all the information it needs to initiate an OAuth2 authorization flow (see the [server metadata](#server-metadata) section below).
 
 Clients do not need to be pre-registered with the Authorization Server. Instead, the Authorization Server will dynamically load the [client metadata document][DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT] from the `client_id`, during an authorization request, as described in the [client metadata](#client-metadata) section. The client metadata is a JSON file that contains the client's metadata (name, logo, allowed redirect URIs, expected scopes, JWKS, etc.). The content of that document is based on the [OAuth 2.0 Dynamic Client Registration Protocol][RFC7591] and [OAuth 2.0 Dynamic Client Registration Management Protocol][RFC7592] specifications.
 
@@ -131,7 +131,7 @@ The general framework is described in figure 1.
 
 Figure 1.: Authorization flow for a client. Note that neither the client nor the authorization server necessarily know about each other before the authorization flow is initiated.
 
-First step (1) is for the client to ask the user for their [ATPROTO] `@handle`, or, should they have forgotten their handle, their PDS or Entryway's URL (e.g. `bsky.social`). The client will then fetch (3) and validate (4) the Authorization Server Metadata using the method described [below](#server-metadata).
+First step (1) is for the client to ask the user for their [ATPROTO] handle, or, should they have forgotten their handle, their PDS or Entryway's URL (e.g. `pds.example.com`). The client will then fetch (3) and validate (4) the Authorization Server Metadata using the method described [below](#server-metadata).
 
 The client will then build (5) the authorization URL using [PAR][RFC9126] & [PKCE][RFC7636]. This will cause the Authorization Server to load and validate the client metadata (6) using the method described [below](#client-metadata). Once the authorization request is successfully created, the end user will be redirected to the authorize endpoint (7, 8).
 
@@ -149,7 +149,7 @@ In addition to the requested tokens, the token response must also contain, in th
 
 In addition to being bound to the client's DPoP key, all tokens issued by the AS will also be bound to the public key used by the client to authenticate itself through the `urn:ietf:params:oauth:grant-type:jwt-bearer` grant (only for public client). If, at any point, a client stops advertising a public key that is used in active sessions, all those sessions will be invalidated. The AS will choose, at its discretion how it will implement this (proactively, whenever metadata are fetched, on the next token refresh, etc.).
 
-Because frontend only apps are not able to provide a similar mechanism to invalidate credentials at scale, [DRAFT-OAUTH-BROWSER-BASED-APPS] requires that refresh tokens "MUST set a maximum lifetime [...] or expire if they are not used in some amount of time". As an additional restriction, unauthenticated clients are not allowed use silent sign on. This means that the user will have to give its consent again (but _not_ necessarily re-authenticate itself if he still has an active session on the AS) to the client every time a period of inactivity is reached. In practice, after some inactivity period, the user will be redirected to the authorization server to re-authorize the client with a message saying: "You have been inactive for 48 hours on `bsky.app`. You are still authenticated as John Doe. To continue, please re-authorize the `bsky.app` to access your account by clicking this button".
+Because frontend only apps are not able to provide a similar mechanism to invalidate credentials at scale, [DRAFT-OAUTH-BROWSER-BASED-APPS] requires that refresh tokens "MUST set a maximum lifetime [...] or expire if they are not used in some amount of time". As an additional restriction, unauthenticated clients are not allowed use silent sign on. This means that the user will have to give its consent again (but _not_ necessarily re-authenticate itself if he still has an active session on the AS) to the client every time a period of inactivity is reached. In practice, after some inactivity period, the user will be redirected to the authorization server to re-authorize the client with a message saying: "You have been inactive for 48 hours on `app.example.com`. You are still authenticated as John Doe. To continue, please re-authorize the `app.example.com` to access your account by clicking this button".
 
 Authenticated clients **should** rotate their keys on a regular basis (e.g. on every new app release, or every month, whichever comes first). They can do so by adding a new key to their JWKS and removing the old ones from time to time. If a breach is detected, the client **must** immediately remove the compromised key from its JWKS. If the mitigation of the breach takes long, all the keys **must** be removed from the JWKS as the issue is being fixed, preventing any new tokens from being issued.
 
@@ -198,7 +198,7 @@ In addition to be conformant with the Client Metadata described in [RFC7591], th
 
 When a client ID uses "`http://localhost`" as origin, the AS will not be able to resolve the client metadata using the method described above. Instead, the Authorization Server will derive the client metadata document from the client ID.
 
-Given a Client ID with the following format: `^http://localhost(?<pathname>\/[^?]*)(<searchParams>?[^#]*)?$`, the following metadata document will be used (authoritative code bellow):
+Given a Client ID with the following format: `^http://localhost(?<pathname>\/[^?]*)(<searchParams>?[^#]*)?$`, the following metadata document will be used (authoritative code below):
 
 ```js
 const { protocol, origin, pathname, searchParams } = new URL(clientId)
@@ -296,7 +296,7 @@ The following rules must be enforced by the AS when receiving a token request.
 - Public clients **must** generate a new keypair for each set of tokens they request. Authorization servers **should** reject initial tokens requests from public clients that use the same keypair as a previous request.
 - Ensure that the client authentication method is the same as the one used during PAR (if `client_assertion` was used during PAR, the same authentication method **must** be used, with a JWT containing a distinct `jti` claim, but signed by the same key)
 - DPoP proof and client assertion **must** be signed using a different keypair.
-- The Token Response from the AS **must** contain a `sub` claim, which must be the end-user's ATPROTO identifier (`did:plc:123`)
+- The Token Response from the AS **must** contain a `sub` claim, which must be the end-user's [ATPROTO] DID (`did:plc:123`)
 
 ## Supported architectures
 
@@ -454,15 +454,15 @@ The client starts by resolving Authorization Server Metadata as described [befor
 In order to build the authorization URL, the client performs a [PAR][RFC9126] + [PKCE][RFC7636] request towards the AS, using the `pushed_authorization_request_endpoint` obtained from the PDS's [Authorization Server Metadata][RFC8414]. Here is an example of such a request:
 
 ```http
-POST https://bsky.social/oauth/par
+POST https://entryway.example.com/oauth/par
 Content-Type: application/x-www-form-urlencoded
 
 response_type=code
 &code_challenge=K2-ltc83acc4h0c9w6ESC_rEMTJ3bww-uCHaoeK1t8U
 &code_challenge_method=S256
-&client_id=bsky.app
+&client_id=app.example.com
 &state=duk681S8n00GsJpe7n9boxdzen
-&redirect_uri=https://bsky.app/my-app/oauth-callback
+&redirect_uri=https://app.example.com/my-app/oauth-callback
 &scope=scope_a scope_b scope_c
 &login_hint=did:plc:123
 &client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer
@@ -485,7 +485,7 @@ Content-Type: application/json
 The client will then redirect the user to the authorize endpoint using the `request_uri` obtained from the previous step. The AS will verify that the `request_uri` is still valid. Here is what the authorization URL will look like:
 
 ```url
-https://bsky.social/oauth/authorize?client_id=bsky.app&request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Abwc4JK-ESC0w8acc191e-Y1LTC2
+https://entryway.example.com/oauth/authorize?client_id=app.example.com&request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Abwc4JK-ESC0w8acc191e-Y1LTC2
 ```
 
 The AS will then authenticate the user and ask them to approve the request. Silent sign-on will only be used if the user already has a session on the AS with the same DID as the one defined in the `login_hint` parameter of the PAR request.
@@ -495,15 +495,15 @@ Upon successful authorization by the user, the AS will issue an authorization co
 The client will use that code (along with [PKCE][RFC7636], DPoP ([RFC9449]) & JWT for Assertion Framework protocol ([RFC7523]) tokens), to contact the `/token` endpoint on the AS. The AS will make all necessary checks (JWT, PKCE, DPoP key <> client assertion key, request expiration, etc.) to ensure that the request is valid. This will be enforced by the AS. Here is an example of such a request:
 
 ```http
-POST https://bsky.social/oauth/token
+POST https://entryway.example.com/oauth/token
 Content-Type: application/x-www-form-urlencoded
 DPoP: <DPOP_PROOF_JWT>
 
 grant_type=authorization_code
 &code=<AUTHORIZATION_CODE>
 &code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
-&client_id=bsky.app
-&redirect_uri=https://bsky.app/my-app/oauth-callback
+&client_id=app.example.com
+&redirect_uri=https://app.example.com/my-app/oauth-callback
 &client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer
 &client_assertion=<SELF_SIGNED_JWT>
 ```
@@ -534,15 +534,15 @@ The client starts by resolving Authorization Server Metadata as described [befor
 In order to build the authorization URL, the client performs a [PAR][RFC9126] + [PKCE][RFC7636] request towards the AS, using the `pushed_authorization_request_endpoint` obtained from the PDS's [Authorization Server Metadata][RFC8414]. Note that browser apps not being able to securely store a shared private key, they will not be able to use the `client_assertion` parameter. Here is an example of such a request:
 
 ```http
-POST https://bsky.social/oauth/par
+POST https://entryway.example.com/oauth/par
 Content-Type: application/x-www-form-urlencoded
 
 response_type=code
 &code_challenge=K2-ltc83acc4h0c9w6ESC_rEMTJ3bww-uCHaoeK1t8U
 &code_challenge_method=S256
-&client_id=bsky.app
+&client_id=app.example.com
 &state=duk681S8n00GsJpe7n9boxdzen
-&redirect_uri=https://bsky.app/my-app/oauth-callback
+&redirect_uri=https://app.example.com/my-app/oauth-callback
 &scope=scope_a scope_b scope_c
 &login_hint=did:plc:123
 ```
@@ -564,7 +564,7 @@ The client will then build an authorization URL using the `authorize_endpoint` o
 
 ```url
 https://bar.xzy/oauth2/authorize
-  ?client_id=bsky.app
+  ?client_id=app.example.com
   &request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Abwc4JK-ESC0w8acc191e-Y1LTC2
 ```
 
@@ -580,15 +580,15 @@ Upon successful authorization by the user, the AS will issue an authorization co
 The client will use that code (along with [PKCE][RFC7636]), to contact the `/token` endpoint on the AS.
 
 ```http
-POST https://bsky.social/oauth/token
+POST https://entryway.example.com/oauth/token
 Content-Type: application/x-www-form-urlencoded
 DPoP: <DPOP_PROOF_JWT>
 
 grant_type=authorization_code
 &code=<AUTHORIZATION_CODE>
 &code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
-&client_id=bsky.app
-&redirect_uri=https://bsky.app/my-app/oauth-callback
+&client_id=app.example.com
+&redirect_uri=https://app.example.com/my-app/oauth-callback
 ```
 
 ```http-response
@@ -650,7 +650,7 @@ The `application_type` client metadata claim is part of [OIDC-CLIENT-REGISTRATIO
 - [DRAFT-OAUTH-BROWSER-BASED-APPS] requires exact matching of the `redirect_uri` for web apps. This rules out the use of loopback redirect uris for web apps.
 - Since AS' can be implemented to be OIDC compliant, it is important that all clients, including those that are not OIDC compliant, stay compatible with every AS. Since the default `application_type` is `web`, non OIDC compliant clients could be rejected by OIDC compliant AS, if they are using `redirect_uris` that are not allowed for `web` clients. For this reason, using Loopback or custom scheme redirect uris requires to specify `application_type` as `native`.
 
-### Should websites allow users to login with ATPROTO ?
+### Should websites allow users to login with [ATPROTO]?
 
 While technically possible it's not recommended at the current time. Clients attempting to implement such a scheme **MUST** take into account that the `sub` in the token response **cannot** be trusted without the did -> pds -> issuer resolution described in this document. Not doing this verification would allow a malicious actor to impersonate any user in the client.
 
