@@ -179,7 +179,7 @@ In addition to be conformant with the Client Metadata described in [RFC7591], th
 - redirect uri using the `https:` scheme **must** be on the same origin as the client, regardless of the the `application_type`.
 - redirect uri using the `http:` scheme are only allowed for `"native"` clients.
 - redirect uri using the `http:` scheme **must** use either `127.0.0.1` or `[::1]` in their hostname component. Any other hostname (including `localhost`) is forbidden. The port **must not** be specified as the AS will allow any port when validating loopback redirect uris.
-- `"native"` clients are allowed to specify redirect uris using custom schemes (e.g. `app.bsky:/callback`). The custom scheme **must** be the reverted domain name of the client (e.g. `com.example.app:` when the client id is `app.example.com`), and must contain at least one `.` character.
+- `"native"` clients are allowed to specify redirect uris using custom schemes (e.g. `app.bsky:/callback`). The custom scheme **must** be the reverted domain name of the client (e.g. `com.example.app:` when the client id is `https://app.example.com/client-metadata.json`), and must contain at least one `.` character.
 - When custom schemes are used in redirect uri, only a single slash (`/`) character is allowed after the scheme (e.g. `app.bsky:/callback` is allowed, but `app.bsky://callback` is not).
 - the `client_uri` metadata, if present, **must** be on the same origin as the URL derived from the client ID.
 - the `subject_type` metadata, if present, **must** be `"public"`.
@@ -460,11 +460,11 @@ Content-Type: application/x-www-form-urlencoded
 response_type=code
 &code_challenge=K2-ltc83acc4h0c9w6ESC_rEMTJ3bww-uCHaoeK1t8U
 &code_challenge_method=S256
-&client_id=app.example.com
+&client_id=https%3A%2F%2Fapp.example.com%2Fclient-metadata.json
 &state=duk681S8n00GsJpe7n9boxdzen
-&redirect_uri=https://app.example.com/my-app/oauth-callback
-&scope=scope_a scope_b scope_c
-&login_hint=did:plc:123
+&redirect_uri=https%3A%2F%2Fapp.example.com%2Fmy-app%2Foauth-callback
+&scope=scope_a%20scope_b%20scope_c
+&login_hint=did%3Aplc%3A123
 &client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer
 &client_assertion=<SELF_SIGNED_JWT>
 ```
@@ -485,7 +485,7 @@ Content-Type: application/json
 The client will then redirect the user to the authorize endpoint using the `request_uri` obtained from the previous step. The AS will verify that the `request_uri` is still valid. Here is what the authorization URL will look like:
 
 ```url
-https://entryway.example.com/oauth/authorize?client_id=app.example.com&request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Abwc4JK-ESC0w8acc191e-Y1LTC2
+https://entryway.example.com/oauth/authorize?client_id=https%3A%2F%2Fapp.example.com%2Fclient-metadata.json&request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Abwc4JK-ESC0w8acc191e-Y1LTC2
 ```
 
 The AS will then authenticate the user and ask them to approve the request. Silent sign-on will only be used if the user already has a session on the AS with the same DID as the one defined in the `login_hint` parameter of the PAR request.
@@ -502,8 +502,8 @@ DPoP: <DPOP_PROOF_JWT>
 grant_type=authorization_code
 &code=<AUTHORIZATION_CODE>
 &code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
-&client_id=app.example.com
-&redirect_uri=https://app.example.com/my-app/oauth-callback
+&client_id=https%3A%2F%2Fapp.example.com%2Fclient-metadata.json
+&redirect_uri=https%3A%2F%2Fapp.example.com%2Fmy-app%2Foauth-callback
 &client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer
 &client_assertion=<SELF_SIGNED_JWT>
 ```
@@ -521,7 +521,7 @@ Cache-Control: no-store
 }
 ```
 
-The AS will bind those tokens to the `client_id` and the public key used to authenticate the client. The validity of the access token will be limited to a short period of time (e.g. 1 hour). The validity of the refresh token **must** be limited to a short period of time (e.g. 24 hours) or expire if they are not used in some amount of time (e.g. 24 hours). The AS **can** use longer pariods for authenticated clients but **must not** allow refresh tokens without a limited lifetime.
+The AS will bind those tokens to the `client_id` and the public key used to authenticate the client. The validity of the access token will be limited to a short period of time (e.g. 1 hour). The validity of the refresh token **must** be limited to a short period of time (e.g. 24 hours) or expire if they are not used in some amount of time (e.g. 24 hours). The AS **can** use longer periods for authenticated clients but **must not** allow refresh tokens without a limited lifetime.
 
 Refresh tokens will later be used in order to obtain new access tokens. These requests on the `token_endpoint` must be authenticated using the same method (JWT for Assertion Framework protocol ([RFC7523])). the same DPoP key must be presented in the `DPoP` header of the request.
 
@@ -540,11 +540,11 @@ Content-Type: application/x-www-form-urlencoded
 response_type=code
 &code_challenge=K2-ltc83acc4h0c9w6ESC_rEMTJ3bww-uCHaoeK1t8U
 &code_challenge_method=S256
-&client_id=app.example.com
+&client_id=https%3A%2F%2Fapp.example.com%2Fclient-metadata.json
 &state=duk681S8n00GsJpe7n9boxdzen
-&redirect_uri=https://app.example.com/my-app/oauth-callback
-&scope=scope_a scope_b scope_c
-&login_hint=did:plc:123
+&redirect_uri=https%3A%2F%2Fapp.example.com%2Fmy-app%2Foauth-callback
+&scope=scope_a%20scope_b%20scope_c
+&login_hint=did%3Aplc%3A123
 ```
 
 Note that the client **must** bind the `state` parameter to the issuer of the authorization request. This is required to properly verify the `iss` parameter in the authorization response (see [RFC9207]).
@@ -564,7 +564,7 @@ The client will then build an authorization URL using the `authorize_endpoint` o
 
 ```url
 https://bar.xzy/oauth2/authorize
-  ?client_id=app.example.com
+  ?client_id=https%3A%2F%2Fapp.example.com%2Fclient-metadata.json
   &request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Abwc4JK-ESC0w8acc191e-Y1LTC2
 ```
 
@@ -587,8 +587,8 @@ DPoP: <DPOP_PROOF_JWT>
 grant_type=authorization_code
 &code=<AUTHORIZATION_CODE>
 &code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
-&client_id=app.example.com
-&redirect_uri=https://app.example.com/my-app/oauth-callback
+&client_id=https%3A%2F%2Fapp.example.com%2Fclient-metadata.json
+&redirect_uri=https%3A%2F%2Fapp.example.com%2Fmy-app%2Foauth-callback
 ```
 
 ```http-response
