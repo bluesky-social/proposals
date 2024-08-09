@@ -297,6 +297,13 @@ The following rules must be enforced by the AS when receiving a token request.
 - Ensure that the client authentication method is the same as the one used during PAR (if `client_assertion` was used during PAR, the same authentication method **must** be used, with a JWT containing a distinct `jti` claim, but signed by the same key)
 - DPoP proof and client assertion **must** be signed using a different keypair.
 - The Token Response from the AS **must** contain a `sub` claim, which must be the end-user's ATPROTO identifier (`did:plc:123`)
+- The validity of the access token **must** be limited to a short period of time (typically 1-5 minutes). The access token validity **must not** exceed 1 hour.
+- Refresh requests on the `token_endpoint` must be authenticated using the same method ([JWT for Assertion Framework protocol][RFC7523]) that was used in order to initially obtain the tokens.
+- Refresh requests must contain a DPoP proof generated using the same key as the one used during the initial token request, as per [spec][RFC9449].
+- Any issued token (both access and refresh) **must** be bound to the `client_id` _and_ the public key used to authenticate the client during the token request.
+- If, during a refresh, a confidential client no longer advertises (through its metadata document's jwks) the key bound to the refresh token being used, the Authorization Server **must** reject the request and invalidate any existing tokens bound to that key.
+- Refresh tokens issued to _public_ clients **must** expire after a short period of time (e.g. 24 hours) or expire if they are not used in some amount of time (e.g. 2 hours). The validity of the refresh token issued to _public_ clients **must not** exceed 1 week.
+- Refresh tokens issued to _confidential_ clients **should** be valid for a longer period (e.g. 6 month). They **must not** be allowed to remain indefinitely valid. The lifetime for refresh tokens **must not** exceed 5 year. The Authorization Server **can** use information it has about the client (e.g. First party, pre-approved, etc.) to determine the lifetime of the refresh token.
 
 ## Supported architectures
 
@@ -520,10 +527,6 @@ Cache-Control: no-store
  "refresh_token": "Q..Zkm29lexi8VnWg2zPW1x-tgGad0Ibc3s3EwM_Ni4-g"
 }
 ```
-
-The AS will bind those tokens to the `client_id` and the public key used to authenticate the client. The validity of the access token will be limited to a short period of time (e.g. 1 hour). The validity of the refresh token **must** be limited to a short period of time (e.g. 24 hours) or expire if they are not used in some amount of time (e.g. 24 hours). The AS **can** use longer pariods for authenticated clients but **must not** allow refresh tokens without a limited lifetime.
-
-Refresh tokens will later be used in order to obtain new access tokens. These requests on the `token_endpoint` must be authenticated using the same method (JWT for Assertion Framework protocol ([RFC7523])). the same DPoP key must be presented in the `DPoP` header of the request.
 
 ### Authorization flow from a serverless browser app
 
