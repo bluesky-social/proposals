@@ -656,14 +656,9 @@ While technically possible it's not recommended at the current time. Clients att
 
 ## References
 
-- [OAuth research](https://blueskyweb.notion.site/oauth2-research-762c333111ec4713b6727d3f1603d61c)
-- [OAuth resources](https://blueskyweb.notion.site/OAuth-resources-87e8cd12da4f4c07896a7887a8e0b70c)
-- [OAuth Support in Bluesky and AT Protocol](https://aaronparecki.com/2023/03/09/5/bluesky-and-oauth)
+- [OAuth Support in Bluesky and AT Protocol](https://aaronparecki.com/2023/03/09/5/bluesky-and-oauth): March 2023 blog post by Aaron Parecki
 - [IETF Working group: Web Authorization Protocol](https://datatracker.ietf.org/wg/oauth/documents/)
-- [Description of a Project](https://github.com/ewilderj/doap/wiki)
 - [IndieAuth][INDIE-AUTH]
-- [JSON for Linking Data](https://json-ld.org/)
-- [The Open Graph protocol](https://ogp.me/)
 - [DID][]: Decentralized Identifiers (DIDs) v1.0
 - [DID Web][DID-WEB]: `did:web` Method Specification
 - [DID PLC][DID-PLC]: `did:plc` Method Specification
