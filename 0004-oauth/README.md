@@ -4,7 +4,7 @@ _This proposal written by Matthieu Sieben, Devin Ivy, and Daniel Holmgren, on be
 
 ## Introduction
 
-[ATPROTO] describes how decentralized entities can communicate in order to provide a world class social networking technology. Users' messages are exchanged from their own/shared Personal Data Servers (PDS) using a federated networking model.
+The [AT Protocol][ATPROTO] describes how decentralized entities can communicate in order to provide a world class social networking technology. Users' messages are exchanged from their own/shared Personal Data Servers (PDS) using a federated networking model.
 
 As of writing of this document, there are basically two ways to obtain credentials to control a user's PDS:
 
@@ -13,7 +13,7 @@ As of writing of this document, there are basically two ways to obtain credentia
 
 Only the latter method is safe to use with a third party application or service (client) that would like to act on the user's behalf. However, this method of obtaining credentials is not very user friendly and does not provide the UX end users are used to.
 
-OAuth2 is a well known, well documented framework specifically made for granting user credentials to third party clients. However, it was not initially designed to work in a fully decentralized environment, such as the [ATPROTO] network. The main issue blocking its direct adoption is that, in OAuth2, clients need to be pre-registered and known by the Authorization Server (AS) before credentials can be granted. The [OAuth 2.0 Dynamic Client Registration Protocol][RFC7591] describes how clients can dynamically register into an AS. However, this method has several disadvantages:
+OAuth2 is a well known, well documented framework specifically made for granting user credentials to third party clients. However, it was not initially designed to work in a fully decentralized environment, such as the [AT Protocol][ATPROTO] network. The main issue blocking its direct adoption is that, in OAuth2, clients need to be pre-registered and known by the Authorization Server (AS) before credentials can be granted. The [OAuth 2.0 Dynamic Client Registration Protocol][RFC7591] describes how clients can dynamically register into an AS. However, this method has several disadvantages:
 
 - Clients need to keep a state for all the AS they registered to, making them harder to implement and maintain.
 - The client credentials obtained from the AS during the registration can get lost, without any way for the clients recover them autonomously.
@@ -21,15 +21,15 @@ OAuth2 is a well known, well documented framework specifically made for granting
 
 This proposal describes an alternative way of performing client registration. This method is relies on being able derive the client metadata document from its client id, allowing clients to be registered on the fly.
 
-This proposal also describes the minimal OAuth requirements that clients and [ATPROTO] servers must implement in order to be able to interact with each other. The choices in this document are based on state of the art security practices and were largely influenced by [DRAFT-OAUTH-BROWSER-BASED-APPS].
+This proposal also describes the minimal OAuth requirements that clients and [AT Protocol][ATPROTO] servers must implement in order to be able to interact with each other. The choices in this document are based on state of the art security practices and were largely influenced by [draft-oauth-browser-based-apps][DRAFT-OAUTH-BROWSER-BASED-APPS].
 
 ### Terminology
 
-Along with the terms defined in the various RFCs listed in the [references](#references) (OAuth 2.0 [RFC6749], JSON Web Token (JWT) [RFC7519], etc.), this draft uses the terms defined hereafter:
+Along with the terms defined in the various RFCs listed in the [references](#references) (OAuth 2.0 [RFC6749][], JSON Web Token (JWT) [RFC7519][], etc.), this draft uses the terms defined hereafter:
 
-- Global client identifier: a globally unique identifier for a client. This differs from the "client identifier" defined by OAuth 2.0 [RFC6749] in the sense that, in the OAuth 2.0 framework, the client identifier is only unique for a given AS. In the current framework, we need clients to be uniquely identified across all AS' in a verifiable way. In this document, "Client ID" refers to the global client identifier of the client.
-- Personal Data Server (PDS): the "resource server" that hold end-users' data, as defined by [ATPROTO].
-- Entryway: In large PDS deployments, it is likely that users will be hosted on numerous individual PDSes. In this case, a special server, the entryway, is responsible for handling unauthenticated requests. This includes the OAuth2 authentication endpoints described in this document. The entryway will thus act as an "Authorization Server", as defined by OAuth 2.0 [RFC6749]. In smaller deployments (e.g. self-hosted PDS), the PDS and entryway may be the same entity/server.
+- Global client identifier: a globally unique identifier for a client. This differs from the "client identifier" defined by OAuth 2.0 [RFC6749][] in the sense that, in the OAuth 2.0 framework, the client identifier is only unique for a given AS. In the current framework, we need clients to be uniquely identified across all AS' in a verifiable way. In this document, "Client ID" refers to the global client identifier of the client.
+- Personal Data Server (PDS): the "resource server" that hold end-users' data, as defined by [AT Protocol][ATPROTO].
+- Entryway: In large PDS deployments, it is likely that users will be hosted on numerous individual PDSes. In this case, a special server, the entryway, is responsible for handling unauthenticated requests. This includes the OAuth2 authentication endpoints described in this document. The entryway will thus act as an "Authorization Server", as defined by OAuth 2.0 [RFC6749][]. In smaller deployments (e.g. self-hosted PDS), the PDS and entryway may be the same entity/server.
 
 ### Goals
 
@@ -42,7 +42,7 @@ The goals we try to achieve through this framework are:
 
 ## Framework
 
-In addition to the identity resolution mechanisms specified by [ATPROTO], the current framework builds on top of the following specifications and drafts:
+In addition to the identity resolution mechanisms specified by [AT Protocol][ATPROTO], the current framework builds on top of the following specifications and drafts:
 
 - [OAuth 2.0 Protected Resource Metadata draft][DRAFT-OAUTH-RESOURCE-METADATA]
 - [OAuth Client ID Metadata Document draft][DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT]
@@ -55,7 +55,7 @@ In addition to the identity resolution mechanisms specified by [ATPROTO], the cu
 - [JWT for Assertion Framework protocol][RFC7523] (For authenticating clients)
 - [Pushed Authorization Requests][RFC9126]
 
-When a client needs to obtain credentials to interact with a user's PDS, it must initiate an authorization flow with the PDS's Authorization Server (AS). In order to determine the AS's authorization metadata, the client must first resolve the PDS's URI from the user's handle (see [ATPROTO]). Once the PDS URI is known (e.g. `https://pds.example.com`), the [protected resource metadata][DRAFT-OAUTH-RESOURCE-METADATA] document will allow the client to obtain the Authorization Server Issuer from the `authorization_servers` field. The [Authorization Server Metadata][RFC8414] endpoint (`<PDS_ORIGIN>/.well-known/oauth-authorization-server`) will allow the client to obtain all the information it needs to initiate an OAuth2 authorization flow (see the [server metadata](#server-metadata) section below).
+When a client needs to obtain credentials to interact with a user's PDS, it must initiate an authorization flow with the PDS's Authorization Server (AS). In order to determine the AS's authorization metadata, the client must first resolve the PDS's URI from the user's handle (see [AT Protocol][ATPROTO]). Once the PDS URI is known (e.g. `https://pds.example.com`), the [protected resource metadata][DRAFT-OAUTH-RESOURCE-METADATA] document will allow the client to obtain the Authorization Server Issuer from the `authorization_servers` field. The [Authorization Server Metadata][RFC8414] endpoint (`<PDS_ORIGIN>/.well-known/oauth-authorization-server`) will allow the client to obtain all the information it needs to initiate an OAuth2 authorization flow (see the [server metadata](#server-metadata) section below).
 
 Clients do not need to be pre-registered with the Authorization Server. Instead, the Authorization Server will dynamically load the [client metadata document][DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT] from the `client_id`, during an authorization request, as described in the [client metadata](#client-metadata) section. The client metadata is a JSON file that contains the client's metadata (name, logo, allowed redirect URIs, expected scopes, JWKS, etc.). The content of that document is based on the [OAuth 2.0 Dynamic Client Registration Protocol][RFC7591] and [OAuth 2.0 Dynamic Client Registration Management Protocol][RFC7592] specifications.
 
@@ -63,7 +63,7 @@ Since clients do not pre-register themselves with the Authorization Server, they
 
 This framework requires the following specifications to be used during the authorization flow:
 
-- PAR: Pushed Authorization Requests ([RFC9126]). Because of the reasons listed hereafter, and because of the added security it provides, the use of PAR is **mandatory** for all clients. Frontend client must also use (unauthenticated) PAR requests.
+- PAR: Pushed Authorization Requests ([RFC9126][]). Because of the reasons listed hereafter, and because of the added security it provides, the use of PAR is **mandatory** for all clients. Frontend client must also use (unauthenticated) PAR requests.
 
   > Note: In the future, we might relax this requirement for frontend clients, but for now, we want to keep things simple & consistent across all clients.
 
@@ -71,9 +71,9 @@ This framework requires the following specifications to be used during the autho
   - PAR allows clients to send a very large authorization request payload (e.g. a request object containing a lot of claims) without having to worry about URL length limitations.
   - PAR improves security and privacy by allowing clients to send sensitive information (e.g. `code_verification`, etc.) directly to the Authorization Server, without having to send this data through the front channel.
 
-- PKCE: Proof Key for Code Exchange ([RFC7636]), which is part of the [OAuth2.1 draft][DRAFT-OAUTH-V2-1]. It is used to prevent any entity, other than the one that initiated the authorization request, to exchange the authorization code for an access token. The main impact of this choice is that the implicit grant type **must not** allow clients to obtain access tokens. Instead, all clients **must** contact the "token endpoint" after they are redirected from the "authorization endpoint" in order to obtain an access token. The OAuth client performing the authorization flow must be able to store a session securely. Only the `S256` challenge method is allowed by this specification. In the future, we might allow `plain` challenge method, but only for authenticated clients.
+- PKCE: Proof Key for Code Exchange ([RFC7636][]), which is part of the [OAuth2.1 draft][DRAFT-OAUTH-V2-1]. It is used to prevent any entity, other than the one that initiated the authorization request, to exchange the authorization code for an access token. The main impact of this choice is that the implicit grant type **must not** allow clients to obtain access tokens. Instead, all clients **must** contact the "token endpoint" after they are redirected from the "authorization endpoint" in order to obtain an access token. The OAuth client performing the authorization flow must be able to store a session securely. Only the `S256` challenge method is allowed by this specification. In the future, we might allow `plain` challenge method, but only for authenticated clients.
 
-- DPoP: Demonstrating Proof of Possession ([RFC9449]) is used to **bind** tokens (access tokens & refresh tokens) to a client instance that holds a specific private key. This is done by providing a "proof of possession" when requesting for new tokens. The Authorization token will then issue a "sender-constrained" Access Token (the public DPoP key of the client is included in the access token). The client instance will then be able to access the resource server (PDS) by providing **both** the access token and a recently generated DPoP proof. This mechanism protects against token theft and replay attacks.
+- DPoP: Demonstrating Proof of Possession ([RFC9449][]) is used to **bind** tokens (access tokens & refresh tokens) to a client instance that holds a specific private key. This is done by providing a "proof of possession" when requesting for new tokens. The Authorization token will then issue a "sender-constrained" Access Token (the public DPoP key of the client is included in the access token). The client instance will then be able to access the resource server (PDS) by providing **both** the access token and a recently generated DPoP proof. This mechanism protects against token theft and replay attacks.
 
 The general framework is described in figure 1.
 
@@ -131,7 +131,7 @@ The general framework is described in figure 1.
 
 Figure 1.: Authorization flow for a client. Note that neither the client nor the authorization server necessarily know about each other before the authorization flow is initiated.
 
-First step (1) is for the client to ask the user for their [ATPROTO] handle, or, should they have forgotten their handle, their PDS or Entryway's URL (e.g. `pds.example.com`). The client will then fetch (3) and validate (4) the Authorization Server Metadata using the method described [below](#server-metadata).
+First step (1) is for the client to ask the user for their [AT Protocol][ATPROTO] handle, or, should they have forgotten their handle, their PDS or Entryway's URL (e.g. `pds.example.com`). The client will then fetch (3) and validate (4) the Authorization Server Metadata using the method described [below](#server-metadata).
 
 The client will then build (5) the authorization URL using [PAR][RFC9126] & [PKCE][RFC7636]. This will cause the Authorization Server to load and validate the client metadata (6) using the method described [below](#client-metadata). Once the authorization request is successfully created, the end user will be redirected to the authorize endpoint (7, 8).
 
@@ -141,15 +141,15 @@ Whenever receiving a request for a particular client, the Authorization Server *
 - Load & verify the client metadata, deduced from the client ID (see the [client metadata](#client-metadata) section)
 - Verify that the authorization request is compliant with the current spec (see the [authorization request](#authorization-request) section)
 
-During the user authorization step (10), if the user never approved a request from a particular client, the [AUTH-UI] will contain any relevant information required for the user to be able to make an informed decision (see the [Impersonation](#impersonation) section below). Note that if the client was authenticated during PAR (step 5), the Authorization Server can decide to grant an increased level of trust to the client, and thus skip some of the authorization UI steps. For example, AS's **should not** allow silent sign on for unauthenticated clients. Similarly, the AS **should** always require user consent for unauthenticated clients (even if consent was already granted before).
+During the user authorization step (10), if the user never approved a request from a particular client, the [Authorization Interface][AUTH-UI] will contain any relevant information required for the user to be able to make an informed decision (see the [Impersonation](#impersonation) section below). Note that if the client was authenticated during PAR (step 5), the Authorization Server can decide to grant an increased level of trust to the client, and thus skip some of the authorization UI steps. For example, AS's **should not** allow silent sign on for unauthenticated clients. Similarly, the AS **should** always require user consent for unauthenticated clients (even if consent was already granted before).
 
 During token retrieval (12), the Authorization Server **must** ensure the Token Request is compliant with the current spec (see the [token request](#token-request) section).
 
-In addition to the requested tokens, the token response must also contain, in the `sub` claim, the user's [ATPROTO] distributed identifier (DID). This value will allow clients to resolve the PDS url using the [DID-PLC] resolution method. If the authorization request was initiated (in step 1) using the user's `@handle`, the client **must** verify that the token response's `sub` claim matches the DID that was resolved from this handle. If no `@handle` was provided when initiating the flow, the client **MUST** perform the [DID-PLC] + Issuer resolution mechanism using the token response's `sub`. This is done to verify that the `iss` of the token response matches the `issuer` from the Authorization Server Metadata resolved from the DID. It is critical that the client checks that the `sub` is indeed hosted and managed by the `iss`, and vice versa, whenever a token response is received.
+In addition to the requested tokens, the token response must also contain, in the `sub` claim, the user's [AT Protocol][ATPROTO] distributed identifier (DID). This value will allow clients to resolve the PDS url using the [DID-PLC] resolution method. If the authorization request was initiated (in step 1) using the user's `@handle`, the client **must** verify that the token response's `sub` claim matches the DID that was resolved from this handle. If no `@handle` was provided when initiating the flow, the client **MUST** perform the [DID-PLC] + Issuer resolution mechanism using the token response's `sub`. This is done to verify that the `iss` of the token response matches the `issuer` from the Authorization Server Metadata resolved from the DID. It is critical that the client checks that the `sub` is indeed hosted and managed by the `iss`, and vice versa, whenever a token response is received.
 
 In addition to being bound to the client's DPoP key, all tokens issued by the AS will also be bound to the public key used by the client to authenticate itself through the `urn:ietf:params:oauth:grant-type:jwt-bearer` grant (only for public client). If, at any point, a client stops advertising a public key that is used in active sessions, all those sessions will be invalidated. The AS will choose, at its discretion how it will implement this (proactively, whenever metadata are fetched, on the next token refresh, etc.).
 
-Because frontend only apps are not able to provide a similar mechanism to invalidate credentials at scale, [DRAFT-OAUTH-BROWSER-BASED-APPS] requires that refresh tokens "MUST set a maximum lifetime [...] or expire if they are not used in some amount of time". As an additional restriction, unauthenticated clients are not allowed use silent sign on. This means that the user will have to give its consent again (but _not_ necessarily re-authenticate itself if he still has an active session on the AS) to the client every time a period of inactivity is reached. In practice, after some inactivity period, the user will be redirected to the authorization server to re-authorize the client with a message saying: "You have been inactive for 48 hours on `app.example.com`. You are still authenticated as John Doe. To continue, please re-authorize the `app.example.com` to access your account by clicking this button".
+Because frontend only apps are not able to provide a similar mechanism to invalidate credentials at scale, [draft-oauth-browser-based-apps][DRAFT-OAUTH-BROWSER-BASED-APPS] requires that refresh tokens "MUST set a maximum lifetime [...] or expire if they are not used in some amount of time". As an additional restriction, unauthenticated clients are not allowed use silent sign on. This means that the user will have to give its consent again (but _not_ necessarily re-authenticate itself if he still has an active session on the AS) to the client every time a period of inactivity is reached. In practice, after some inactivity period, the user will be redirected to the authorization server to re-authorize the client with a message saying: "You have been inactive for 48 hours on `app.example.com`. You are still authenticated as John Doe. To continue, please re-authorize the `app.example.com` to access your account by clicking this button".
 
 Authenticated clients **should** rotate their keys on a regular basis (e.g. on every new app release, or every month, whichever comes first). They can do so by adding a new key to their JWKS and removing the old ones from time to time. If a breach is detected, the client **must** immediately remove the compromised key from its JWKS. If the mitigation of the breach takes long, all the keys **must** be removed from the JWKS as the issue is being fixed, preventing any new tokens from being issued.
 
@@ -167,12 +167,12 @@ Authorization Server **must not** accept client IDs that are not compliant with 
 
 ### Client metadata
 
-Instead of relying on dynamic client registration, clients will be automatically/lazily registered by the AS when they first initiate an authorization flow. In order to do so, the AS will need to be able to resolve the the client metadata document as described by [[DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT]].
+Instead of relying on dynamic client registration, clients will be automatically/lazily registered by the AS when they first initiate an authorization flow. In order to do so, the AS will need to be able to resolve the the client metadata document as described by [draft-oauth-client-id-metadata-document][DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT].
 
-In addition to be conformant with the Client Metadata described in [RFC7591], the following rules also apply to the client metadata document. These rules **must** be enforced by the AS.
+In addition to be conformant with the Client Metadata described in [RFC7591][], the following rules also apply to the client metadata document. These rules **must** be enforced by the AS.
 
 - the metadata **must** contain `client_id`, and this value **must** be strictly equal to the client id that was used to resolve this document.
-- the metadata **must** contain `"dpop_bound_access_tokens": true`. All clients must use [DPoP][RFC9449] proof when requesting tokens.
+- the metadata **must** contain `"dpop_bound_access_tokens": true`. All clients must use DPoP ([RFC9449][]) proof when requesting tokens.
 - the metadata **must** contain at least one `redirect_uris` entry.
 - the `application_type`, if present, **must** either be `"web"` or `"native"` (default is `web`).
 - `"web"` clients must use HTTPS for all their `redirect_uris`.
@@ -187,7 +187,7 @@ In addition to be conformant with the Client Metadata described in [RFC7591], th
 - the `response_types` metadata **must** contain `code`. Other response types can be added (e.g. `id_token`) but won't necessarily be supported by the AS.
 - the `scope` metadata **must** contain `offline_access` if, and only if, `refresh_token` is present in `grant_types`.
 - the `scope` metadata can be used to restrict which scopes are allowed during the authorization flow for that client. No scope are allowed by default.
-- the `response_types` _may_ contain `"token"`. However, since [PKCE][RFC7636] is mandatory for all exchanges, AS **must** only allow `"token"` response type to be used when PKCE is irrelevant (such as during the `password` grant type).
+- the `response_types` _may_ contain `"token"`. However, since PKCE ([RFC7636][]) is mandatory for all exchanges, AS **must** only allow `"token"` response type to be used when PKCE is irrelevant (such as during the `password` grant type).
 - every `token_endpoint_auth_method` (where `<endpoint>` is `token`, `revocation`, `introspection`), if present, **must** be set to `private_key_jwt` or `none`.
 - if any of the `token_endpoint_auth_method` is set to `private_key_jwt`, the client **must** provide a JSON web key set (JWKS), either through the `jwks` metadata or through the `jwks_uri` metadata, that contains at least one key.
 - `jwks` and `jwks_uri` **must not** be used together.
@@ -222,7 +222,7 @@ if (origin === 'http://localhost') {
 }
 
 if (protocol === 'https:') {
-  // [DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT]
+  // draft-oauth-client-id-metadata-document
   return fetchAndValidateMetadataDocument(clientId)
 }
 
@@ -231,13 +231,13 @@ if (protocol === 'https:') {
 
 ### Server Metadata
 
-In order to retrieve the AS metadata, the client will first need to obtain the PDS URL (using [ATPROTO]'s resolution mechanism). The PDS URL (e.g. `https://pds.example`) being a resource server, the client will need to fetch the [protected resource metadata document][DRAFT-OAUTH-RESOURCE-METADATA] (by appending `/.well-known/oauth-protected-resource` to the PDS URL). That document MUST contain a single item in the `authorization_servers` array. This issuer identifier (e.g. `https://entryway.example`) will allow the client to fetch the Authorization Server Metadata (By appending `/.well-known/oauth-authorization-server` to the issuer). All the documents **must** be returned with a 200 HTTP status code and a `application/json` content-type. Any other status code or content-type **must** result in an error.
+In order to retrieve the AS metadata, the client will first need to obtain the PDS URL (using [AT Protocol][ATPROTO]'s resolution mechanism). The PDS URL (e.g. `https://pds.example`) being a resource server, the client will need to fetch the [protected resource metadata document][DRAFT-OAUTH-RESOURCE-METADATA] (by appending `/.well-known/oauth-protected-resource` to the PDS URL). That document MUST contain a single item in the `authorization_servers` array. This issuer identifier (e.g. `https://entryway.example`) will allow the client to fetch the Authorization Server Metadata (By appending `/.well-known/oauth-authorization-server` to the issuer). All the documents **must** be returned with a 200 HTTP status code and a `application/json` content-type. Any other status code or content-type **must** result in an error.
 
 Note that a user's `@handle` or DID is _not_ required to initiate this flow. The client can cut short the "handle -> did -> pds url -> authorisation server url" process by starting at any step (depending on user input). For example, if the client detects that the user used an HTTPS url as input, it can try to obtain the [protected resource metadata document][DRAFT-OAUTH-RESOURCE-METADATA], and continue the resolution process from there. If that fails, the client can then try to interpret the input as being an authorization server's issuer in order to obtain the metadata document.
 
 Once the client retrieved the Authorization Server Metadata, it **must** verify the following items. Any authorization flow with an AS not compliant with these rules **must** be rejected by the client.
 
-- `issuer` **must** be a valid URL on the same origin as the URL that was used to fetch the document. If a redirection occurred, the URL of the last HTTP request **must** be used to check the metadata's `issuer` (see [DRAFT-OAUTH-SECURITY-TOPICS] section 4.4).
+- `issuer` **must** be a valid URL on the same origin as the URL that was used to fetch the document. If a redirection occurred, the URL of the last HTTP request **must** be used to check the metadata's `issuer` (see [draft-oauth-security-topics][DRAFT-OAUTH-SECURITY-TOPICS] section 4.4).
 - `issuer` **must** be an HTTPS URL in the form `https://<domain>[:<port>]/`. The port **must** be omitted if it is the default port for the scheme (e.g. `443` for `https`). The `http:` scheme **must not** be used.
 - `response_types_supported` **must** at least contain `code`.
 - `grant_types_supported` **must** at least contain `authorization_code` and `refresh_token`.
@@ -246,12 +246,12 @@ Once the client retrieved the Authorization Server Metadata, it **must** verify 
 - `token_endpoint_auth_signing_alg_values_supported` **must** contain `ES256`.
 - `scopes_supported` **must** contain `refresh_token`, `email`, `profile`.
 - `subject_types_supported`, if present, **must** contain `public`.
-- `authorization_response_iss_parameter_supported` **must** be `true`. Both AS' and clients **must** be [RFC9207] compliant.
-- `pushed_authorization_request_endpoint` **must** be set. Both AS' and clients **must** be [RFC9126] compliant.
+- `authorization_response_iss_parameter_supported` **must** be `true`. Both AS' and clients **must** be [RFC9207][] compliant.
+- `pushed_authorization_request_endpoint` **must** be set. Both AS' and clients **must** be [RFC9126][] compliant.
 - `require_pushed_authorization_requests` **must** be set to `true`.
 - `dpop_signing_alg_values_supported` **must** be set and contain `ES256`.
 - `require_request_uri_registration`, if present, **must** be `true`.
-- `client_id_metadata_document_supported` **must** be set to `true` (per [[DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT]]).
+- `client_id_metadata_document_supported` **must** be set to `true` (per [draft-oauth-client-id-metadata-document][DRAFT-OAUTH-CLIENT-ID-METADATA-DOCUMENT]).
 
 The client **must** also comply with the definitions of these fields, as defined by their authoritative specifications.
 
@@ -262,19 +262,19 @@ In addition to the [OAuth 2.0 Security Best Current Practice][DRAFT-OAUTH-SECURI
 - The following scopes **must** be supported: `email`, `profile`, `offline_access`
 - The `code` response type **must** be supported.
 - The `ES256` JWT verification algorithm must be supported for any JWT verification (e.g. `client_assertion`, `dpop` proof, etc.)
-- [Pushed Authorization Request][RFC9126] **must** be enforced (`require_pushed_authorization_requests` in the server metadata must be `true`).
-- The [Pushed Authorization Request][RFC9126] endpoint **must** support the same authentication methods as the token endpoint (namely `private_key_jwt` and `none`).
+- Pushed Authorization Request ([RFC9126][]) **must** be enforced (`require_pushed_authorization_requests` in the server metadata must be `true`).
+- The Pushed Authorization Request ([RFC9126][]) endpoint **must** support the same authentication methods as the token endpoint (namely `private_key_jwt` and `none`).
 - grant types: `authorization_code` & `refresh_token`
 - Response modes: `fragment`, `query`, `form_post`
 - The Token & PAR Endpoints **must** support the `none` & `private_key_jwt` Authentication Methods.
 - They **must** require PKCE for all authentication requests.
-- The `code_challenge_methods_supported` server metadata ([PKCE][RFC7636]) **must** contain `RS256`. The AS _should not_ allow the `plain` challenge method to be used.
+- The `code_challenge_methods_supported` server metadata (PKCE [RFC7636][]) **must** contain `RS256`. The AS _should not_ allow the `plain` challenge method to be used.
 - They **must** require DPoP for all tokens requests. They **must** support DPoP for authorization requests.
 - Access tokens **must** have a maximum lifetime of 1 hour.
 - The OAuth authorization server metadata must be expose through the `oauth-authorization-server` well-known endpoint (see the [server metadata](#server-metadata) section)
 - Unauthenticated clients **must not** be issued refresh tokens with a total lifetime longer than 48 hours
 - refresh tokens **must** be bound to the client's DPoP key
-- refresh tokens **should** be rotated any time they are used. If a previous refresh token is replayed, the AS **must** revoke the currently active refresh token. See [DRAFT-OAUTH-SECURITY-TOPICS] (section 4.14.2).
+- refresh tokens **should** be rotated any time they are used. If a previous refresh token is replayed, the AS **must** revoke the currently active refresh token. See [draft-oauth-security-topics][DRAFT-OAUTH-SECURITY-TOPICS] (section 4.14.2).
 
 ### Authorization Request
 
@@ -296,7 +296,7 @@ The following rules must be enforced by the AS when receiving a token request.
 - Public clients **must** generate a new keypair for each set of tokens they request. Authorization servers **should** reject initial tokens requests from public clients that use the same keypair as a previous request.
 - Ensure that the client authentication method is the same as the one used during PAR (if `client_assertion` was used during PAR, the same authentication method **must** be used, with a JWT containing a distinct `jti` claim, but signed by the same key)
 - DPoP proof and client assertion **must** be signed using a different keypair.
-- The Token Response from the AS **must** contain a `sub` claim, which must be the end-user's [ATPROTO] DID (`did:plc:123`)
+- The Token Response from the AS **must** contain a `sub` claim, which must be the end-user's [AT Protocol][ATPROTO] DID (`did:plc:123`)
 
 ## Supported architectures
 
@@ -329,7 +329,7 @@ In this architecture, all secrets are kept on the backend. This means that the a
 +-----------------+         +-------------------------------------------------+
 ```
 
-This figure was taken from the section 6.1.1 of [DRAFT-OAUTH-BROWSER-BASED-APPS]. It shows that the backend is the only entity that can contact the resource server (PDS). It can do so either on its own (from a background worker) or on behalf of a user (by proxying the requests).
+This figure was taken from the section 6.1.1 of [draft-oauth-browser-based-apps][DRAFT-OAUTH-BROWSER-BASED-APPS]. It shows that the backend is the only entity that can contact the resource server (PDS). It can do so either on its own (from a background worker) or on behalf of a user (by proxying the requests).
 
 In this architecture, the authorization flow works as follows:
 
@@ -380,7 +380,7 @@ These proofs will be used both when requesting the new tokens through the backen
 +-----------------+         +-------------------------------------------------+
 ```
 
-This figure was taken from the section 6.2.1 of [DRAFT-OAUTH-BROWSER-BASED-APPS]. In this scenario, the browser obtains tokens from the Token-Mediating Backend and uses them to access the Resource Server (J).
+This figure was taken from the section 6.2.1 of [draft-oauth-browser-based-apps][DRAFT-OAUTH-BROWSER-BASED-APPS]. In this scenario, the browser obtains tokens from the Token-Mediating Backend and uses them to access the Resource Server (J).
 
 In this architecture, the authorization flow works as follows:
 
@@ -426,7 +426,7 @@ In this architecture, the client is a frontend only app. It can be a mobile app,
 +-----------------+         +-------------------------------+
 ```
 
-This figure was taken from the section 6.3.1 of [DRAFT-OAUTH-BROWSER-BASED-APPS]. We can see the Browser negotiating with the Authorization Server (B), and then interacting directly with the Resource Server (D,E).
+This figure was taken from the section 6.3.1 of [draft-oauth-browser-based-apps][DRAFT-OAUTH-BROWSER-BASED-APPS]. We can see the Browser negotiating with the Authorization Server (B), and then interacting directly with the Resource Server (D,E).
 
 The client metadata **must not** contain any public key (JWKS) as the client, being "serverless", has no way to securely store & use any private key.
 
@@ -527,7 +527,7 @@ Refresh tokens will later be used in order to obtain new access tokens. These re
 
 ### Authorization flow from a serverless browser app
 
-In this mode, the browser will act as a public client. This is essentially the flow described in section 6.3 of [DRAFT-OAUTH-BROWSER-BASED-APPS]. The reason why we want to support the least secure option from the book is because we want to allow client developers to create simple serverless apps for the Atproto ecosystem.
+In this mode, the browser will act as a public client. This is essentially the flow described in section 6.3 of [draft-oauth-browser-based-apps][DRAFT-OAUTH-BROWSER-BASED-APPS]. The reason why we want to support the least secure option from the book is because we want to allow client developers to create simple serverless apps for the Atproto ecosystem.
 
 The client starts by resolving Authorization Server Metadata as described [before](#server-metadata).
 
@@ -606,7 +606,7 @@ Cache-Control: no-store
 
 The AS will make all necessary checks (PKCE, request expiration, etc.) to ensure that the request is valid and issue a new access token and a refresh token.
 
-See [DRAFT-OAUTH-BROWSER-BASED-APPS] (section 6.3.2.5) and [DRAFT-OAUTH-SECURITY-TOPICS] (section 4.14.2), for more details on the restriction that **must** be applied to the refresh tokens.
+See [draft-oauth-browser-based-apps][DRAFT-OAUTH-BROWSER-BASED-APPS] (section 6.3.2.5) and [draft-oauth-security-topics][DRAFT-OAUTH-SECURITY-TOPICS] (section 4.14.2), for more details on the restriction that **must** be applied to the refresh tokens.
 
 ## Security
 
@@ -646,11 +646,11 @@ Yes. There is nothing in this spec that prevents the Authorization Server to be 
 
 The `application_type` client metadata claim is part of [OIDC-CLIENT-REGISTRATION] and not part of [Dynamic Client Registration Protocol][RFC7591]. While this spec does not require OIDC compatibility, that particular claim was added for the following reasons:
 
-- [DRAFT-OAUTH-SECURITY-TOPICS] distinguishes security practices for native & web apps.
-- [DRAFT-OAUTH-BROWSER-BASED-APPS] requires exact matching of the `redirect_uri` for web apps. This rules out the use of loopback redirect uris for web apps.
+- [draft-oauth-security-topics][DRAFT-OAUTH-SECURITY-TOPICS] distinguishes security practices for native & web apps.
+- [draft-oauth-browser-based-apps][DRAFT-OAUTH-BROWSER-BASED-APPS] requires exact matching of the `redirect_uri` for web apps. This rules out the use of loopback redirect uris for web apps.
 - Since AS' can be implemented to be OIDC compliant, it is important that all clients, including those that are not OIDC compliant, stay compatible with every AS. Since the default `application_type` is `web`, non OIDC compliant clients could be rejected by OIDC compliant AS, if they are using `redirect_uris` that are not allowed for `web` clients. For this reason, using Loopback or custom scheme redirect uris requires to specify `application_type` as `native`.
 
-### Should websites allow users to login with [ATPROTO]?
+### Should websites allow users to login with [AT Protocol][ATPROTO]?
 
 While technically possible it's not recommended at the current time. Clients attempting to implement such a scheme **MUST** take into account that the `sub` in the token response **cannot** be trusted without the did -> pds -> issuer resolution described in this document. Not doing this verification would allow a malicious actor to impersonate any user in the client.
 
