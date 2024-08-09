@@ -172,7 +172,7 @@ Instead of relying on dynamic client registration, clients will be automatically
 In addition to be conformant with the Client Metadata described in [RFC7591][], the following rules also apply to the client metadata document. These rules **must** be enforced by the AS.
 
 - the metadata **must** contain `client_id`, and this value **must** be strictly equal to the client id that was used to resolve this document.
-- the metadata **must** contain `"dpop_bound_access_tokens": true`. All clients must use DPoP ([RFC9449][]) proof when requesting tokens.
+- the metadata **must** contain `"dpop_bound_access_tokens": true`. All clients must use [DPoP][RFC9449]) proof when requesting tokens.
 - the metadata **must** contain at least one `redirect_uris` entry.
 - the `application_type`, if present, **must** either be `"web"` or `"native"` (default is `web`).
 - `"web"` clients must use HTTPS for all their `redirect_uris`.
@@ -187,7 +187,7 @@ In addition to be conformant with the Client Metadata described in [RFC7591][], 
 - the `response_types` metadata **must** contain `code`. Other response types can be added (e.g. `id_token`) but won't necessarily be supported by the AS.
 - the `scope` metadata **must** contain `offline_access` if, and only if, `refresh_token` is present in `grant_types`.
 - the `scope` metadata can be used to restrict which scopes are allowed during the authorization flow for that client. No scope are allowed by default.
-- the `response_types` _may_ contain `"token"`. However, since PKCE ([RFC7636][]) is mandatory for all exchanges, AS **must** only allow `"token"` response type to be used when PKCE is irrelevant (such as during the `password` grant type).
+- the `response_types` _may_ contain `"token"`. However, since [PKCE][RFC7636]) is mandatory for all exchanges, AS **must** only allow `"token"` response type to be used when PKCE is irrelevant (such as during the `password` grant type).
 - every `token_endpoint_auth_method` (where `<endpoint>` is `token`, `revocation`, `introspection`), if present, **must** be set to `private_key_jwt` or `none`.
 - if any of the `token_endpoint_auth_method` is set to `private_key_jwt`, the client **must** provide a JSON web key set (JWKS), either through the `jwks` metadata or through the `jwks_uri` metadata, that contains at least one key.
 - `jwks` and `jwks_uri` **must not** be used together.
@@ -268,7 +268,7 @@ In addition to the [OAuth 2.0 Security Best Current Practice][DRAFT-OAUTH-SECURI
 - Response modes: `fragment`, `query`, `form_post`
 - The Token & PAR Endpoints **must** support the `none` & `private_key_jwt` Authentication Methods.
 - They **must** require PKCE for all authentication requests.
-- The `code_challenge_methods_supported` server metadata (PKCE [RFC7636][]) **must** contain `RS256`. The AS _should not_ allow the `plain` challenge method to be used.
+- The `code_challenge_methods_supported` server metadata ([PKCE][RFC7636]) **must** contain `RS256`. The AS _should not_ allow the `plain` challenge method to be used.
 - They **must** require DPoP for all tokens requests. They **must** support DPoP for authorization requests.
 - Access tokens **must** have a maximum lifetime of 1 hour.
 - The OAuth authorization server metadata must be expose through the `oauth-authorization-server` well-known endpoint (see the [server metadata](#server-metadata) section)
@@ -394,7 +394,7 @@ In this architecture, the authorization flow works as follows:
 - Upon successful authorization, the authorization server redirects the user back to the backend's `<redirect_uri>` with an authorization `code` in the URL.
 - The backend stores that `code` in the user's session.
 - The frontend app is loaded in the browser.
-- The app creates a **non exportable** asymmetric key pair ([WEBCRYPTO]). The private key should be stored in the browser's indexedDB. This keypair will be used for generating DPoP proofs.
+- The app creates a **non exportable** asymmetric key pair ([WebCrypto][WEBCRYPTO]). The private key should be stored in the browser's indexedDB. This keypair will be used for generating DPoP proofs.
 - The frontend app asks the backend for an access token by providing a `dpop` proof, along with its session id.
 - The backend uses the `code` (loaded from the session data), along with a `client_assertion` (JWT) and the frontend app's `dpop` proof, to request an access token from the `<token_endpoint>` (retrieved from the Authorization Server Metadata).
 - The backend stores the access token & refresh token in its secure storage, linked to the user's session.
@@ -439,7 +439,7 @@ In this architecture, the authorization flow works as follows:
 - The AS loads & validates the client metadata (C)
 - The app redirects the user to the `<authorization_endpoint>` (retrieved from the Authorization Server Metadata), either in the same tab or in a popup/new tab.
 - Upon successful authorization, the authorization server redirects the user back to the app's `<redirect_uri>` with an authorization `code` in the URL.
-- The app creates a **non exportable** asymmetric key pair ([WEBCRYPTO]). The private key should be stored in the browser's indexedDB so it can be re-used after a reload of the browser. This keypair will be used for generating DPoP proofs.
+- The app creates a **non exportable** asymmetric key pair ([WebCrypto][WEBCRYPTO]). The private key should be stored in the browser's indexedDB so it can be re-used after a reload of the browser. This keypair will be used for generating DPoP proofs.
 - The app uses the `code`, along with a `dpop` proof, to request an access token from the `<token_endpoint>` (retrieved from the Authorization Server Metadata).
 - The app stores the tokens in the browser's storage (typically, indexedDB).
 - The app resolved the PDS url by using `aud` obtained by querying the `<introspection_endpoint>` (retrieved from the Authorization Server Metadata).
@@ -492,7 +492,7 @@ The AS will then authenticate the user and ask them to approve the request. Sile
 
 Upon successful authorization by the user, the AS will issue an authorization code and redirect the user back to the client's `redirect_uri`.
 
-The client will use that code (along with [PKCE][RFC7636], DPoP ([RFC9449]) & JWT for Assertion Framework protocol ([RFC7523]) tokens), to contact the `/token` endpoint on the AS. The AS will make all necessary checks (JWT, PKCE, DPoP key <> client assertion key, request expiration, etc.) to ensure that the request is valid. This will be enforced by the AS. Here is an example of such a request:
+The client will use that code (along with [PKCE][RFC7636], [DPoP][RFC9449] & [JWT for Assertion Framework protocol][RFC7523]) tokens), to contact the `/token` endpoint on the AS. The AS will make all necessary checks (JWT, PKCE, DPoP key <> client assertion key, request expiration, etc.) to ensure that the request is valid. This will be enforced by the AS. Here is an example of such a request:
 
 ```http
 POST https://entryway.example.com/oauth/token
@@ -523,7 +523,7 @@ Cache-Control: no-store
 
 The AS will bind those tokens to the `client_id` and the public key used to authenticate the client. The validity of the access token will be limited to a short period of time (e.g. 1 hour). The validity of the refresh token **must** be limited to a short period of time (e.g. 24 hours) or expire if they are not used in some amount of time (e.g. 24 hours). The AS **can** use longer periods for authenticated clients but **must not** allow refresh tokens without a limited lifetime.
 
-Refresh tokens will later be used in order to obtain new access tokens. These requests on the `token_endpoint` must be authenticated using the same method (JWT for Assertion Framework protocol ([RFC7523])). the same DPoP key must be presented in the `DPoP` header of the request.
+Refresh tokens will later be used in order to obtain new access tokens. These requests on the `token_endpoint` must be authenticated using the same method ([JWT for Assertion Framework protocol][RFC7523]). The same DPoP key must be presented in the `DPoP` header of the request.
 
 ### Authorization flow from a serverless browser app
 
@@ -571,7 +571,7 @@ https://bar.xzy/oauth2/authorize
 The browser will open that URL and the user will be redirected to the AS. The AS will flag this authorization request as "non-confidential". This will cause the following limitations to be applied:
 
 - No silent sign-on will be allowed in this case (any `prompt=none` request will result in `error=login_required` errors)
-- The user will be shown a confirmation [AUTH-UI] whether he already approved this client or not.
+- The user will be shown a confirmation [Authorization Interface][AUTH-UI] whether he already approved this client or not.
 - The total lifetime of the tokens will be limited.
 - The DPoP key must be a key never encountered before. This is done to prevent a malicious actor who managed to steal a DPoP key from a client to be able to use it during future sessions, at which point any vulnerability might have been fixed.
 
@@ -620,7 +620,7 @@ If, at any point, a public key that was used by a client to authenticate itself 
 
 ### Impersonation
 
-Since client names and logo can easily be spoofed, they will **not** be used in the [AUTH-UI] to avoid any misdirection while the user make their choice. The best (an only) way users nowadays know how to identify an internet actor is by its domain name. Their handle could also be used, but these are not as easy to identify as being authentic as domain names are.
+Since client names and logo can easily be spoofed, they will **not** be used in the [Authorization Interface][AUTH-UI] to avoid any misdirection while the user make their choice. The best (an only) way users nowadays know how to identify an internet actor is by its domain name. Their handle could also be used, but these are not as easy to identify as being authentic as domain names are.
 
 ### Server Side Request Forgery (SSRF)
 
@@ -644,7 +644,7 @@ Yes. There is nothing in this spec that prevents the Authorization Server to be 
 
 ### `application_type` is part of OIDC, why is it part of this spec ?
 
-The `application_type` client metadata claim is part of [OIDC-CLIENT-REGISTRATION] and not part of [Dynamic Client Registration Protocol][RFC7591]. While this spec does not require OIDC compatibility, that particular claim was added for the following reasons:
+The `application_type` client metadata claim is part of [OIDC Client Registration][OIDC-CLIENT-REGISTRATION] and not part of [Dynamic Client Registration Protocol][RFC7591]. While this spec does not require OIDC compatibility, that particular claim was added for the following reasons:
 
 - [draft-oauth-security-topics][DRAFT-OAUTH-SECURITY-TOPICS] distinguishes security practices for native & web apps.
 - [draft-oauth-browser-based-apps][DRAFT-OAUTH-BROWSER-BASED-APPS] requires exact matching of the `redirect_uri` for web apps. This rules out the use of loopback redirect uris for web apps.
@@ -661,35 +661,35 @@ While technically possible it's not recommended at the current time. Clients att
 - [OAuth Support in Bluesky and AT Protocol](https://aaronparecki.com/2023/03/09/5/bluesky-and-oauth)
 - [IETF Working group: Web Authorization Protocol](https://datatracker.ietf.org/wg/oauth/documents/)
 - [Description of a Project](https://github.com/ewilderj/doap/wiki)
-- [INDIE-AUTH] IndieAuth
+- [IndieAuth][INDIE-AUTH]
 - [JSON for Linking Data](https://json-ld.org/)
 - [The Open Graph protocol](https://ogp.me/)
-- [DID] Decentralized Identifiers (DIDs) v1.0
-- [DID-WEB] `did:web` Method Specification
-- [DID-PLC] `did:plc` Method Specification
-- [OIDC-CORE] OpenID Connect Core 1.0
-- [OIDC-CLIENT-REGISTRATION] OpenID Connect Dynamic Client Registration 1.0
-- [RFC6749] OAuth 2.0 Authorization Framework
-- [RFC7517] JSON Web Key (JWK)
-- [RFC7519] JSON Web Token (JWT)
-- [RFC7521] Assertion Framework
-- [RFC7523] JWT for Assertion Framework
-- [RFC7591] Dynamic Client Registration Protocol
-- [RFC7592] Dynamic Client Registration Management Protocol
-- [RFC7636] Proof Key for Code Exchange (PKCE)
-- [RFC8414] Authorization Server Metadata (`/.well-known/oauth-authorization-server`)
-- [RFC9101] JWT-Secured Authorization Request (JAR)
-- [RFC9126] Pushed Authorization Requests (PAR)
-- [RFC9207] OAuth 2.0 Authorization Server Issuer Identification
-- [RFC9449] Demonstrating Proof of Possession (DPoP)
-- [DRAFT-AUTHORIZATION-SERVER-DISCOVERY] Draft: Authorization Server Discovery
-- [DRAFT-OAUTH-ATTESTATION-BASED-CLIENT-AUTH] Draft: Attestation-Based Client Authentication
-- [DRAFT-OAUTH-BROWSER-BASED-APPS] Draft: Oauth browser based apps
-- [DRAFT-OAUTH-FIRST-PARTY-APPS] Draft: OAuth 2.0 for First-Party Applications
-- [DRAFT-OAUTH-SECURITY-TOPICS] Draft: Security Best Current Practice
-- [DRAFT-OAUTH-V2-1] Draft: OAuth 2.1
-- [W3C-WEBMANIFEST] Draft: Web Application Manifest
-- [WEBCRYPTO] Web Crypto API
+- [DID][]: Decentralized Identifiers (DIDs) v1.0
+- [DID Web][DID-WEB]: `did:web` Method Specification
+- [DID PLC][DID-PLC]: `did:plc` Method Specification
+- [OIDC Core:][OIDC-CORE] OpenID Connect Core 1.0
+- [OIDC Client Registration][OIDC-CLIENT-REGISTRATION]: OpenID Connect Dynamic Client Registration 1.0
+- [RFC6749][]: OAuth 2.0 Authorization Framework
+- [RFC7517][]: JSON Web Key (JWK)
+- [RFC7519][]: JSON Web Token (JWT)
+- [RFC7521][]: Assertion Framework
+- [RFC7523][]: JWT for Assertion Framework
+- [RFC7591][]: Dynamic Client Registration Protocol
+- [RFC7592][]: Dynamic Client Registration Management Protocol
+- [RFC7636][]: Proof Key for Code Exchange (PKCE)
+- [RFC8414][]: Authorization Server Metadata (`/.well-known/oauth-authorization-server`)
+- [RFC9101][]: JWT-Secured Authorization Request (JAR)
+- [RFC9126][]: Pushed Authorization Requests (PAR)
+- [RFC9207][]: OAuth 2.0 Authorization Server Issuer Identification
+- [RFC9449][]: Demonstrating Proof of Possession (DPoP)
+- [draft-authorization-server-discovery][DRAFT-AUTHORIZATION-SERVER-DISCOVERY]: Authorization Server Discovery (Draft)
+- [draft-oauth-attestation-based-client-auth][DRAFT-OAUTH-ATTESTATION-BASED-CLIENT-AUTH]: Attestation-Based Client Authentication (Draft)
+- [draft-oauth-browser-based-apps][DRAFT-OAUTH-BROWSER-BASED-APPS]: Oauth browser based apps (Draft)
+- [draft-oauth-first-party-apps][DRAFT-OAUTH-FIRST-PARTY-APPS]: OAuth 2.0 for First-Party Applications (Draft)
+- [draft-oauth-security-topics][DRAFT-OAUTH-SECURITY-TOPICS]: Security Best Current Practice (Draft)
+- [draft-oauth-v2-1][DRAFT-OAUTH-V2-1]: OAuth 2.1 (Draft)
+- [WebManifest][W3C-WEBMANIFEST]: Web Application Manifest (Draft)
+- [WebCrypto][WEBCRYPTO]: Web Crypto API (W3C)
 
 [ATPROTO]: https://atproto.com/ 'AT Protocol'
 [AUTH-UI]: https://www.oauth.com/oauth2-servers/authorization/the-authorization-interface/ 'The Authorization Interface'
