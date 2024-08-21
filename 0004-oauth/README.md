@@ -1,6 +1,10 @@
 # 0004 OAuth 2.0 for the AT Protocol
 
+> [!TIP]
+> This is a historical and informational document, not the authoritative specification for OAuth in atproto. It has not and will not be updated to reflect the actual specification. There is a changes/errata section at the bottom with a few notable changes.
+
 _This proposal written by Matthieu Sieben, Devin Ivy, and Daniel Holmgren, on behalf of Bluesky. First posted in February 2024._
+
 
 ## Introduction
 
@@ -718,3 +722,20 @@ While technically possible it's not recommended at the current time. Clients att
 [RFC9449]: https://datatracker.ietf.org/doc/html/rfc9449 'RFC9449: Demonstrating Proof of Possession'
 [W3C-WEBMANIFEST]: https://w3c.github.io/manifest/ 'Draft: Web Application Manifest'
 [WEBCRYPTO]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API 'Web Crypto API'
+
+## Notable Changes / Errata
+
+> [!TIP]
+> This list is a point-in-time summary, not a comprehensive list of differences between this original proposal and the atproto OAuth spec. Refer to the [atproto specifications](https://atproto.com/specs/atp) for the authoritative spec (when it is published).
+
+As of 2024-08-20, the following differences are planned or have already been implemented compared to this proposal:
+
+- The `client_id` is the full `https://` URL to the Client Metadata JSON document, not a hostname
+- OpenID/OIDC is no longer planned to be encouraged for client authentication (`authn`) without authorization (`authz`). The semantic differences between OIDC and atproto OAuth are too great. Instead, an "authn-only" use-case of atproto OAuth will be described, using the account DID returned in the `sub` field of the token response
+- `offline_access` will not be used/recommended
+- terminology for "public" vs "confidential" clients will be clarified to align with OAuth 2.0/2.1 definitions, replacing "authenticated client"
+- basic "transitional" authz scopes will be defined, aligning with the current "app password" privilege level in atproto legacy auth. a more granular and flexible generic scope framework will be supported in the future.
+- the required `state` parameter will be clarified: it is a client-generated random token unique to every auth request used to match the auth response callback with the earlier auth request
+- the required `nonce` parameter will be clarified: it is a client-generated random token, originally specified as part of OpenID, and distinct from DPoP nonces. It is required in the atproto OAuth profile even in the absence of OpenID support
+- clarify that clients may start DPoP at the authorization request (PAR), or defer it to the initial auth token request. starting earlier is recommended.
+- clarifications around cache TTLs and token lifetimes
