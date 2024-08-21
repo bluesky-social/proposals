@@ -730,12 +730,12 @@ While technically possible it's not recommended at the current time. Clients att
 
 As of 2024-08-20, the following differences are planned or have already been implemented compared to this proposal:
 
-- The `client_id` is the full `https://` URL to the Client Metadata JSON document, not a hostname
-- OpenID/OIDC is no longer planned to be encouraged for client authentication (`authn`) without authorization (`authz`). The semantic differences between OIDC and atproto OAuth are too great. Instead, an "authn-only" use-case of atproto OAuth will be described, using the account DID returned in the `sub` field of the token response
-- `offline_access` will not be used/recommended
-- terminology for "public" vs "confidential" clients will be clarified to align with OAuth 2.0/2.1 definitions, replacing "authenticated client"
+- The `client_id` is the full `https://` URL to the Client Metadata JSON document, not a hostname.
+- OpenID/OIDC is no longer planned to be encouraged for client authentication (`authn`) without authorization (`authz`). The semantic differences between OIDC and atproto OAuth are too great. Instead, an "authn-only" use-case of atproto OAuth will be described, using the account DID returned in the `sub` field of the token response.
+- `offline_access` will not be used/recommended.
+- terminology for "public" vs "confidential" clients will be clarified to align with OAuth 2.0/2.1 definitions, replacing "authenticated client".
 - basic "transitional" authz scopes will be defined, aligning with the current "app password" privilege level in atproto legacy auth. a more granular and flexible generic scope framework will be supported in the future.
-- the required `state` parameter will be clarified: it is a client-generated random token unique to every auth request used to match the auth response callback with the earlier auth request
-- the required `nonce` parameter will be clarified: it is a client-generated random token, originally specified as part of OpenID, and distinct from DPoP nonces. It is required in the atproto OAuth profile even in the absence of OpenID support
+- the required `state` parameter will be clarified: it is a client-generated random token unique to every auth request used to match the auth response callback with the earlier auth request.
+- the required `nonce` parameter will be clarified: it is a client-generated random token, originally specified as part of OpenID, and distinct from DPoP nonces. It is required in the atproto OAuth profile even in the absence of OpenID support.
 - clarify that clients may start DPoP at the authorization request (PAR), or defer it to the initial auth token request. starting earlier is recommended.
-- clarifications around cache TTLs and token lifetimes
+- clarifications around cache TTLs and token lifetimes.
