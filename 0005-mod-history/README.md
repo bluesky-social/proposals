@@ -30,7 +30,7 @@ Stretch goals:
 
 - inactive accounts (takendown, suspended, etc) can view mod history in-app and appeal those account-wide actions. In particular, for users on independent PDS instances who use the Bluesky AppView.
 - ability for "subject" accounts to view mod actions/history from labelers that they do not actually subscribe to
-- ability to suppress access to mod history for an account, in extreme/antagonistic situations. For example, do not revleal early actions against sophisticated bot networks, or early actions/review against accounts distributing illegal abuse content, both of which could leak information about anti-abuse mechanisms
+- ability to suppress access to mod history for an account, in extreme/antagonistic situations. For example, do not reveal early actions against sophisticated bot networks, or early actions/review against accounts distributing illegal abuse content, both of which could leak information about anti-abuse mechanisms
 - keep track of content deletion and content updates in ozone, for some retention window, so the original content can be displayed as context in the history (both for reporters and subject accounts)
 - moderation history for chat (DMs) in addition to accounts and records
 
