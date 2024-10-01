@@ -60,7 +60,7 @@ Email actions could be included for the recipient account ("Email sent at this t
 
 Metadata about subjects and reports should not be leaked. For example, an account should not be able to see if their content (or account) has been reported or not; that is private. Users should not be able to see if others have also reported a piece of content; that is private.
 
-In a future iteration, it might be helpful to retain previous versions of content ti display in the moderation history. For example, profile records are easily updated. If profile text or avatar image was updated in response to moderation action, it would be helpful for users to see the original record (which was actioned), and then any history of updates and the state of the record at that time, as part of the record. Similarly, self-deletion of content would be helpful to view as an event in history. Note that these events are *not* already stored in Ozone, and are *not* available via any existing service API.
+In a future iteration, it might be helpful to retain previous versions of content to display in the moderation history. For example, profile records are easily updated. If profile text or avatar image was updated in response to moderation action, it would be helpful for users to see the original record (which was actioned), and then any history of updates and the state of the record at that time, as part of the record. Similarly, self-deletion of content would be helpful to view as an event in history. Note that these events are *not* already stored in Ozone, and are *not* available via any existing service API.
 
 
 ## Design Notes
