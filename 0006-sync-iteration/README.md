@@ -10,7 +10,7 @@ The direct changes to core sync mechanisms are:
 - include additional metadata and MST blocks in firehose `#commit` messages to enable per-commit MST validation ("operation inversion" or "inductive firehose")
 - hard limits on repository diff (`#commit` message sizes), and removing the `tooBig` flag
 - new `#sync` firehose event type, for discontinuous changes in repo state
-- new `broken` account hosting status, for downstream services to indicate that repository synchronization is broken and needs repair
+- new `desynchronized` and `throttled` account hosting statuses, for consuming services to indicate that an account has lost synchronization, or has exceeded rate-limits (respectively)
 - clarification of behaviors at the relay and consuming services when they encounter invalid messages or discontinuities in a repo's sequence of commits
 
 Supporting changes include:
