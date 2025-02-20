@@ -77,7 +77,7 @@ That is, each "create" operation will be inverted as a "delete" operation and ap
 
 To make it possible to validate individual `#commit` messages in isolation, the previous `data` CID is included in the new `prevData` field on the message. This field is not authenticated (signed), and still needs to be verified against the actual previously seen `data` value.
 
-The inversion process allows individual commits to be verified, without retaining any MST nodes or record data locally. Assuming an initial repository state can be verified, and each commit can be verified, the final repository state is verified, "by induction". This method is sometimes called "inductive firehose".
+The inversion process allows individual commits to be verified, without retaining any MST nodes or record data locally. Assuming an initial repository state can be verified, and each commit can be verified, the final repository state is verified, "by induction". Induction, [in the mathematical sense](https://en.wikipedia.org/wiki/Mathematical_induction), meaning that if a starting base state is proven, and that starting with any given state the next state can be proven, then the entire sequence of states has been proven. The new atproto commit validation process is sometimes called "inductive firehose".
 
 A few schema changes are needed to enable validation via inversion:
 
