@@ -82,10 +82,10 @@ The inversion process allows individual commits to be verified, without retainin
 A few schema changes are needed to enable validation via inversion:
 
 - the new `prevData` field on `#commit` messages, mentioned above
-- the `repoOp` objects (in `ops` on `#commit` messages) need to include the previous value (CID) for "update" and "delete" actions, so they can be inverted. Note that the record values are not needed, only the CID.
+- the `repoOp` objects (in `ops` on `#commit` messages) need to include the previous value (record CID) for "update" and "delete" actions, so they can be inverted. These go in a new `prev` field on each operation. Note that the record values are not needed, only the CID.
 - in some cases, additional unchanged MST nodes need to be included in `blocks`, so that the tree data structure can be updated
 
-Which additional nodes need to be included, and when? The tautological answer is "whatever blocks are needed for operation inversion". One attempt at a definition is to include blocks which contain the MST keys (paths) directly adjacent to keys added or removed to the tree by any operations. We will provide test vectors covering these situations, and will work towards a more formal definition for the final specifications.
+Which additional nodes need to be included, and when? The tautological answer is "whatever blocks are needed for operation inversion". One attempt at a definition is to include blocks which contain the MST keys (paths) directly adjacent to any keys added or removed to the tree by any operations. In most cases those blocks are already included in the existing diffs; our experience has been that these situations are relatively rare (on the order of one in a thousand commit messages). We will provide test vectors covering these situations, and will work towards a more formal definition for the final specifications.
 
 
 ## Staying Synchronized: `#sync` event, auto-repair, and account status
@@ -94,12 +94,12 @@ The "inductive firehose" process works when each `#commit` is fully verified, in
 
 There are two broad categories of errors that can disrupt synchronization:
 
-- **Invalid Commit Message:** the message has invalid CBOR encoding, invalid MST structure, missing blocks, mismatching operation list, etc. Usually caused by *upstream implementation bugs*.
+- **Invalid Commit Message:** the message has invalid CBOR encoding, invalid MST structure, missing blocks, mismatching operation list, fails validation of the `prevData` CID declared in the commit itself, etc. Usually caused by *upstream implementation bugs*.
 - **Discontinuous Commits:** re-transmitted or missing commits, `prevData` does not match the actual previous commit, duplicate `rev`, etc. Often caused by *operational issues*, though might also be due to implementation bugs.
 
 A general assumption is that implementation bugs will persist until there is developer intervention, while operational issues are usually transient and can be recovered from automatically. This means that invalid commits are usually dropped by consumers. Some types of discontinuous commits (like retransmission) are also ignored, while others (forks, skipped messages) result in re-synchronization.
 
-A new message type (`#sync`) is added to help with some error conditions. This message is similar to a `#commit` message, in that it contains a single authenticated commit, encoded in a CAR file. It only contains the commit block, not any MST nodes or records (even if the commit did mutate the directory). The semantics of the `#sync` message are: "this is the current state of the repository". When receiving a `#sync`, consumers should check if the `rev` is old (in which case it is ignored) or matches the current state of the repository (a no-op, also ignored). Otherwise, if there is a gap, the consumer needs to resynchronize the repository by fetching a full CAR file using `com.atproto.sync.getRepo`. They should make this request to the same host they are consuming the firehose from (eg, a relay); see the "Sync Boundary" section below for more details.
+A new message type (`#sync`) is added to declare the current state of the repository, regardless of the previous state. This message is similar to a `#commit` message, in that it contains a single authenticated commit, encoded in a CAR file. It only contains the commit block, not any MST nodes or records (even if the commit did mutate the directory). The semantics of the `#sync` message are: "this is the current state of the repository". When receiving a `#sync`, consumers should check if the `rev` is old (in which case it is ignored) or matches the current state of the repository (in which case it is a no-op, also ignored). Otherwise, if there is a gap, the consumer needs to resynchronize the repository by fetching a full CAR file using `com.atproto.sync.getRepo`. They should make this request to the same host they are consuming the firehose from (eg, a relay); see the "Sync Boundary" section below for more details.
 
 `#sync` can be emitted by a PDS or Relay to force a repair of the account if needed, for example after fixing an implementation bug. They should also be emitted (after `#account` events) at certain account lifecycle moments, such as when the account is first created, after account migration, or after an account recovery using a CAR file import.
 
@@ -107,16 +107,16 @@ However, in most operational error conditions, it is the expectation that consum
 
 The re-synchronize process could start as soon as a problem is detected, or it might be enqueued as a background job. The resync might fail or timeout, and require retries. To keep track of things during this period, and make it transparent to operators, a new account state is added: `desynchronized`. An account in this state has lost sync, and repair has not been completed yet. An account in this state is not necessarily `active=false`: data should remain indexed, and can be redistributed (though services may set their own policies and behaviors on this point).
 
-Re-synchronization can require fetching and processing a full repo CAR file, which is a relatively expensive operation. See the "Sync Boundary" section for details of this process, and "Streaming CAR Processing" for ways to make it cheaper for consumers. To prevent network abuse and avoid resource consumption, services should keep counters and rate-limit re-synchronization attempts. Accounts which are in a rate-limited state (for exceeding this or other limits) can use the new `throttled` account state.
+Re-synchronization can require fetching and processing a full repo CAR file, which is a relatively expensive operation. See the "Sync Boundary" section for details of this process, and "Streaming CAR Processing" for ways to make it cheaper for consumers. To prevent network abuse and avoid resource consumption, services should keep counters and rate-limit re-synchronization attempts. Accounts which are in a rate-limited state (for exceeding this or other limits) can use the new `throttled` account state. A PDS or account which does not implement the repository data structure, and has a discontinuity at every commit, would end up throttled by consumers (including relays).
 
 Relays do not perform the re-synchronization process. They should drop invalid commit messages (not pass-through). They should keep track of discontinuous commits, and may set the `throttled` state if limits are exceeded. Otherwise they should pass through discontinuous commits as-is (and update their "last commit" state).
 
 
 ## Sync Boundary and Record Operation Stream
 
-Not all services working with atproto data need to implement "Authenticated Transfer" and verify synchronization. They might skip some aspects of verification, or use an un-authenticated event stream (like Jetstream).
+The intent of Authenticated Transfer is to enable interoperation (possibly adversarial interoperation) between service providers who have no relationship, all over the open internet. This authenticated synchronization can occurs indirectly, across multiple intermediate hops and providers. There is a "sphere of authenticated transfer" which starts at the account's repository host (eg, PDS), which signs commits. It terminates at the last service in the transfer chain which implements full validation. Intermediate services, like a relay, might do validation, but that is not integral or required for their role, and if they are operated by an untrusted party, they are not the "trust boundary".
 
-The intent of Authenticated Transfer is to enable interoperation (possibly adversarial interoperation) between service providers who have no relationship, all over the open internet. This authenticated synchronization often occurs indirectly, across multiple hops and providers. There is a "sphere of authenticated transfer" which starts at the account's repository host (eg, PDS), which signs commits. It terminates at the last service in the transfer chain which implements full validation. Intermediate services, like a relay, might do validation, but that is not integral or required for their role, and if they are operated by an untrusted party, they are not the "trust boundary".
+Not every service in the network needs to implement Authenticated Transfer and re-verify synchronization. It is possible, and expected, for many services to delegate that responsibility to a trusted service. Application services can build on unauthenticated stream (such as Jetstream), as long as there is an understanding of the trust relationship involved.
 
 The "trust boundary" also corresponds with a "sync boundary": the terminating service is also responsible for re-synchronizing accounts via a `getRepo` call.
 
@@ -129,7 +129,9 @@ Application indices (eg, AppView) often want to ensure they have processed all r
 - in the event of a re-synchronization, the service fetches the repo CAR file, and then walks through all records in the tree, in key-sorted order, comparing against the table of record state. Any mismatches (created, updated, deleted records) are updated in the table, and a record op is emitted for processing
 - if an account needs to be fully deleted, the table of records can be iterated through, with "delete" record operations processed for every current record
 
-This entire commit-to-record-op process can be implemented as a generic SDK or microservice. Multiple downstream services can share a single sync termination service; for example multiple services operated by the same organization, or a trusted group of collaborators, or anybody with a formal agreement or relationship (eg, contract or service agreement) with a service provider.
+The "Partial Synchronization" and "Streaming CAR Processing" sections below are relevant to keeping resynchronization efficient for consuming services.
+
+The entire commit-to-record-op process can be implemented as a generic SDK or microservice. Multiple downstream services can share a single sync termination service; for example multiple services operated by the same organization, or a trusted group of collaborators, or anybody with a formal agreement or relationship (eg, contract or service agreement) with a service provider.
 
 
 ## Commit Size Limits
@@ -165,11 +167,12 @@ One mechanism is to request only the record range needed, as described above in 
 
 Another is to make it possible to read repo CAR files in a "streaming" fashion, instead of loading the full tree into memory. The common case is to "walk" the keys in the MST data structure, starting from the commit block and then descending in depth-first order starting with the lowest key. If the blocks in the CAR file are in just the right order, then the tree can be walked by reading a single block at a time, and retaining only a few "parent" parsed tree nodes in memory.
 
-The exact order requirement will need to be formalized more, but would be roughly:
+The constraints on CAR files and block ordering would be:
 
 - commit CID as the first entry in the `root` list in the CAR header (already the case)
-- commit block first, then the root MST node of the tree
-- for every node in the tree, include blocks corresponding to the entries in the node. if the entry slot is a child node, include that node block, and recurse depth-first. if the entry slot is a record, include the record block
+- commit object as the first block
+- then nodes would be included "pre-order" (parent before children or leaves), starting with the root MST node
+- for every node in the tree, include blocks corresponding to the entries in the node, in order. if the entry slot is a child node, include that node block, and recurse depth-first. if the entry slot is a record, include the record block
 
 
 ## Deprecations
