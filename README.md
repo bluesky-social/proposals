@@ -13,3 +13,5 @@ Please open issues and PRs to discuss the content.
 ## [0004 OAuth](./0004-oauth/)
 
 ## [0005 Ozone Moderation History](./0005-mod-history/)
+
+## [0006 AT Protocol Sync v1.1](./0006-sync-iteration/)
