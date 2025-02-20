@@ -71,7 +71,7 @@ The `#commit` message type on the `com.atproto.sync.subscribeRepos` event stream
 
 The MST in the `blocks` is signed, while the `ops` are not. Today, the two fields can be partially cross-verified, in that all the `ops` can be verified against the `blocks`. However, the `blocks` can not be fully verified against the `ops`. For example, it is possible that many records were deleted in the same commit, and this is represented in the `blocks`, but that not all the deletion ops are enumerated in the `ops`. This could be due to an implementation mistake, a hostile intermediary, or a PDS intentionally generating malformed messages.
 
-The new way to fully cross-verify verify the `ops` with the `blocks` is to *invert* all of the operations against the (partial) MST in the `blocks`. If the list of operations is complete, then after inverting all of the operations, the tree will be back in the prior state just before the commit. This can be verified by keeping track of the previous value of the MST root CID (`data` value).
+The new way to fully cross-verify verify the `ops` with the `blocks` is to *invert* all of the operations against the (partial) MST in the `blocks`. If the list of operations is complete, then after inverting all of the operations, the tree will be back in the prior state just before the commit. This can be verified by keeping track of the previous value of the MST root CID (the commit block's `data` value).
 
 That is, each "create" operation will be inverted as a "delete" operation and applied to the tree. Every "delete" will become a "create" of the record. Every "update" will be updated back to the previous value.
 
@@ -124,7 +124,7 @@ This service also often unpacks commits into individual record operations. Commi
 
 Application indices (eg, AppView) often want to ensure they have processed all relevant record operations for a repository. There is a relatively efficient process to keep track, including resynchronization events:
 
-- the terminating service keeps a table of all relevant records that have been tracked, including at least the account DID, collect, record key, and record CID. the record value itself does not need to be stored. Only records with relevant collections need to be tracked
+- the terminating service keeps a table of all relevant records that have been tracked, including at least the account DID, collection, record key, and record CID. the record value itself does not need to be stored. Only records with relevant collections need to be tracked
 - when new commits are processed, after they are fully verified, the table is updated with all the record operations in the commit, and the record operations are indexed (or passed along to other services for processing)
 - in the event of a re-synchronization, the service fetches the repo CAR file, and then walks through all records in the tree, in key-sorted order, comparing against the table of record state. Any mismatches (created, updated, deleted records) are updated in the table, and a record op is emitted for processing
 - if an account needs to be fully deleted, the table of records can be iterated through, with "delete" record operations processed for every current record
