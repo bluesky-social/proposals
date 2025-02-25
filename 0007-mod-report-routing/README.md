@@ -1,6 +1,8 @@
 0007: Moderation Report Routing
 ===============================
 
+*Feedback and Discussion on this proposal on Github Discussions: https://github.com/bluesky-social/atproto/discussions/3581*
+
 Stackable Moderation allows independent moderation services to receive reports and take moderation actions, such as applying labels. The overall system was [originally released](https://docs.bsky.app/blog/blueskys-moderation-architecture) in March 2024\. Since then, one of the most consistent challenges for independent moderators has been a flood of graphic and out-of-scope reports. This document proposes changes to the reporting aspect of the system, to improve "routing" of reports.
 
 Moderation services (also called "labelers") will be able to declare which subject types and report reasons they are willing to receive. Client apps (including the Bluesky Social app) will selectively display reporting options based on services' declared reason types.
