@@ -15,7 +15,7 @@ Moderation service declarations (`app.bsky.labeler.service` records) will includ
 
 **Reason Types** (`reasonTypes`, array of strings, Lexicon token references): matching the existing field on reports, indicating the reason the subject is being reported.
 
-**Subject Types** (`subjectTypes`, array of strings, with known values): specifies which kinds of subject can be reported to the service. Services can infer this information from existing reports, based on the subject. Specified values::
+**Subject Types** (`subjectTypes`, array of strings, with known values): specifies which kinds of subject can be reported to the service. Services can infer this information from existing reports, based on the subject. Specified values:
 
 - `account`: overall account (report on a DID, not a piece of content)  
 - `record`: report on a specific record ("strongRef", meaning an AT-URI and a content hash)  
@@ -88,7 +88,7 @@ Another alternative would be to allow custom report reasons, defined by the mode
 
 "Appeals" are a special type of report, with a dedicated reason type, and a separate UI flow. This proposal doesn't change how appeals work. For now, services can not opt-out of receiving appeals from client apps, even if the service does not support the relevant workflow or API endpoint. This might change in a future iteration.
 
-Chat/DMs are a special subject type, both in that chat messages are private, and that the current chat system (`chat.bsky.*`) is centralized. To start, the `chat` `subjectType` may be limited to the Bluesky Moderation Service in the Bluesky Social client app.
+Chat/DMs are a special subject type, both in that chat messages are private, and that the current chat system (`chat.bsky.*`) is centralized. To start, the `chat` `subjectType` would be limited to the Bluesky Moderation Service in the Bluesky Social client app.
 
 The Lexicons for reporting and labeling are currently spread between the `com.atproto.moderation.*` namespace (associated with the AT Protocol) and the `app.bsky.labeler.*` namespace (associated with the Bluesky app). In the long run, we would like to migrate some of these Lexicons to the `tools.ozone.*` namespace (associated with the Ozone moderation service). While moderation is an important part of AT Protocol, and the current reporting mechanism is application-neutral, the design is opinionated and not the only way that moderation reporting could work in the protocol. For example, some moderation systems make it possible to reference multiple pieces of content in a single report, to provide context about a pattern of behavior. The current reporting flow would not support that functionality, but alternative reporting APIs could. In terms of implementing a migration like this, moving API endpoints is simpler than record schemas, but still requires planning and coordination. We are not starting that process in this iteration.
 
