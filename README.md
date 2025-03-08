@@ -17,3 +17,5 @@ Please open issues and PRs to discuss the content.
 ## [0006 AT Protocol Sync v1.1](./0006-sync-iteration/)
 
 ## [0007 Moderation Report Routing](./0007-mod-report-routing/)
+
+## [0008 User Intents for Data Reuse](./0008-user-intents/)
