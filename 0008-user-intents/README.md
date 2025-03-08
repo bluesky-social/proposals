@@ -1,5 +1,7 @@
-0008: Data Reuse User Intents
-=============================
+0008: User Intents for Data Reuse
+=================================
+
+*Join the [Github](https://github.com/bluesky-social/atproto/discussions/3617) discussion here.*
 
 *Some of the proposals we publish are nearly complete, and represent specification drafts. Others are sharing early work for feedback, and communicate a general direction more than the specifics. This proposal is one of the later. We are interested in aligning both technical mechanisms and policy language with other emerging efforts, and are sharing this proposal as a first step.*
 

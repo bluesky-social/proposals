@@ -18,4 +18,4 @@ Please open issues and PRs to discuss the content.
 
 ## [0007 Moderation Report Routing](./0007-mod-report-routing/)
 
-## [0008 Data Reuse User Intents](./0008-user-intents/)
+## [0008 User Intents for Data Reuse](./0008-user-intents/)
