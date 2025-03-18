@@ -126,7 +126,7 @@ This proposal makes a few opinionated design decisions:
 
 * intentions are expressed with three states: "allow", "disallow" or "undefined". It is possible to express only a subset of the intents, or none at all
 * these intents are account-wide for simplicity, not application-specific or configurable on individual pieces of content. Applications may have their own intent mechanisms.
-* the available intents are a small currated set. They are not free-form, and there is not a direct extension mechanism.
+* the available intents are a small curated set. They are not free-form, and there is not a direct extension mechanism.
 * governance of these intents and their definitions is separate from AT Protocol (`com.atproto.*`) and from the Bluesky app (`app.bsky.*`)
 
 Having intents expressed as three states makes it clearer when a user has made an explicit decision or not. Realistically, a large majority of users may stick with the default "undeclared" state. In that situation, downstream projects will need to make their own policy decisions around whether content re-use is acceptable or not. We think that user agents (eg, client apps) should not set intents automatically for users.
