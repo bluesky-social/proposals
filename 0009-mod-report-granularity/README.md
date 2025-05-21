@@ -1,6 +1,7 @@
 # 0009: Moderation Report Granularity
 
-Feedback and Discussion on this proposal on Github Discussions: [TODO]
+Feedback and discussion on this proposal on Github Discussions:
+https://github.com/bluesky-social/atproto/discussions/3880
 
 Building on our [previous improvements to moderation report
 routing](https://github.com/bluesky-social/atproto/discussions/3581), this
