@@ -19,3 +19,5 @@ Please open issues and PRs to discuss the content.
 ## [0007 Moderation Report Routing](./0007-mod-report-routing/)
 
 ## [0008 User Intents for Data Reuse](./0008-user-intents/)
+
+## [0009: Moderation Report Granularity](./0009-mod-report-granularity/)
