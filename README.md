@@ -1,6 +1,6 @@
 # Bluesky Proposals
 
-This repository is an informal collection of proposals which we have published for feedback. It's used as-needed and has no official process. External proposals are not requested *yet*.
+This repository is an informal collection of proposals which we have published for feedback. It's used as-needed and has no official process. External proposals are not requested _yet_.
 
 Please open issues and PRs to discuss the content.
 
@@ -21,3 +21,5 @@ Please open issues and PRs to discuss the content.
 ## [0008 User Intents for Data Reuse](./0008-user-intents/)
 
 ## [0009: Moderation Report Granularity](./0009-mod-report-granularity/)
+
+## [0010: Client assertion backend](./0010-client-assertion-backend/)
