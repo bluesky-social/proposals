@@ -2,13 +2,13 @@
 
 > This proposal written by Devin Ivy and edited Matthieu Sieben, on behalf of Bluesky. First posted in June 2025.
 
-In its current form, ATProto's OAuth flavor requires app developers to make a choice: use a “confidential” or “public” client. This choice will impact the security properties of the OAuth session like its lifetime, the ability to use silent-sign-on, etc.
+In its current form, ATProto's OAuth flavor requires app developers to make a choice: use a “confidential” or “public” client. This choice will impact the security properties of the OAuth session like its lifetime, the ability to use silent sign-in, etc.
 
-Single page apps (web browser) and native apps, are applications that run and hold credentials on user devices. They typically don’t have a server component (besides a trivial one for serving static assets), making them, defacto, “public”. In order to become “confidential”, clients MUST be able to securely maintain, and use, private keys. This means that they MUST rely on a more complex server component (back-end).
+Single page apps (web browser) and native apps, are applications that run and hold credentials on user devices. They typically don’t have a server component (besides a trivial one for serving static assets), making them de facto “public”. In order to become “confidential”, clients must be able to securely maintain and use private keys. As a result, they also must rely on a more complex server component (backend).
 
 Native and browser-based apps often achieve this through a [Token Mediating Backend](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-browser-based-apps#section-6.2.1) (TMB) architecture. But implementing such a server can be quite complex, as the server will have to deal with session management, token storage, etc. This is especially true when combined with DPoP.
 
-The purpose of this proposal is to outline a low-footprint method of making confidential browser-based clients. It does so by extending the [JWT Profile for OAuth 2.0 Client Authentication and Authorization Grants](https://datatracker.ietf.org/doc/html/rfc7523) – when used in combination with [Demonstrating Proof of Possession](https://datatracker.ietf.org/doc/html/rfc9449).
+The purpose of this proposal is to outline a low-footprint method of making confidential browser-based clients. It does so by extending the [JWT Profile for OAuth 2.0 Client Authentication and Authorization Grants](https://datatracker.ietf.org/doc/html/rfc7523) – when used in combination with [Demonstrating Proof of Possession](https://datatracker.ietf.org/doc/html/rfc9449), which is already a part of the ATProto OAuth profile.
 
 ## Specification
 
@@ -22,7 +22,7 @@ To upgrade a browser-based client from public to confidential, we’ll take thre
 
 1. The client runs a web service backend (to be described) which contains private key material used for client authentication consistent with [RFC 7523](https://datatracker.ietf.org/doc/html/rfc7523), and reflects the public keys through the `jwks` or `jwks_uri` claims in their client metadata document.
 2. When the client wants to make a request to the authorization server’s PAR or token endpoint during the authorization flow, it first obtains a client assertion by making a request to its backend containing a DPoP proof. The backend returns back a client assertion JWT consistent with [JWT Profile for OAuth 2.0 Client Authentication and Authorization Grants (RFC 7523)](https://datatracker.ietf.org/doc/html/rfc7523), bound to the DPoP public key using the `cnf` claim and `jkt` method.
-3. The client sends this client assertion to the authorization server token endpoint, along with a DPoP proof using its same session key. Per the [specification](about:blank#specification) above, the authorization server will validate that the same DPoP key was used for both the client assertion and the token endpoint.
+3. The client sends this client assertion to the authorization server token endpoint, along with a DPoP proof using its same session key. Per the [specification](#specification) above, the authorization server will validate that the same DPoP key was used for both the client assertion and the token endpoint.
 
 ## Client assertion backend implementation details
 
@@ -65,7 +65,7 @@ Access-Control-Allow-Origin: https://my.client.com
 
 ## Conclusion
 
-By having client key material, sessions may be revoked en masse by rotating the keys advertised in the client’s metadata document.
+By requiring client key material, sessions may be revoked en masse by rotating the keys advertised in the client’s metadata document.
 
 Individual sessions may be discontinued by the client assertion backend refusing to issue new assertions for a given DPoP key.
 
@@ -73,7 +73,7 @@ Max session lifetimes or other arbitrary session lifetime rules can be enforced 
 
 By bounding the client authentication to the session DPoP key it greatly constrains the impact of having an open endpoint for providing client assertions (though the backend may also require other forms of authentication). You could not mint an assertion in one session then use it in another.
 
-This essentially puts a client backend “in the middle” of credential issuance from the token endpoint, without the token request actually having to pass through the backend service. This is in contrast to the token-mediating backend pattern, which acts more like a proxy with its own auth lifecycle.
+This essentially gives a client backend veto power over token issuance, without the token request actually having to pass through the backend service. This is in contrast to the token-mediating backend pattern, which acts more like a proxy with its own auth lifecycle.
 
 ## Resources
 
