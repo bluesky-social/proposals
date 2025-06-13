@@ -133,7 +133,7 @@ Having intents expressed as three states makes it clearer when a user has made a
 
 Some intents and preferences will make more sense at the application level, or attached to individual pieces of content. For example the Bluesky app has a "threadgate" mechanism to declare rules for interacting in a thread.
 
-Intents live in public atproto records. Assume an independent Lexicon domain like `user-intents.org`, at least as a placeholder. Existing community efforts like `lexicons.community` have governance structures, and could be another possible home for the Lexicon.
+Intents live in public atproto records. Assume an independent Lexicon domain like `user-intents.org`, at least as a placeholder. Existing community efforts like `lexicon.community` have governance structures, and could be another possible home for the Lexicon.
 
 Intent metadata might be hydrated in protocol-layer or application-specific API responses ("views"). They could be included in HTML metadata or HTTP headers, as appropriate. Protocol SDKs and tooling could include helpers to automatically enforce user intents. Eg, tools for generating snapshots of the network could be configurable to respect or ignore specific intents.
 
