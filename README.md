@@ -23,3 +23,5 @@ Please open issues and PRs to discuss the content.
 ## [0009: Moderation Report Granularity](./0009-mod-report-granularity/)
 
 ## [0010: Client assertion backend](./0010-client-assertion-backend/)
+
+## [0011: Auth Scopes](./0011-auth-scopes/)
