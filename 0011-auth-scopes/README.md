@@ -1,152 +1,149 @@
 
 # 0011 Auth Scopes for ATProto
 
-OAuth provides a mechanism for client apps to authenticate with PDS instances to access resources like repository data and API proxying. But the current "transitional" scopes provide only coarse-grained access to resources: apps can either update any repository record, or no repository records.
+OAuth enables applications to log into “Personal Data Servers” (PDSes) and access a user’s account. It is the preferred method for creating sessions. The OAuth flow requires permission “scopes” which describe the level of access granted with the session. At time of writing, ATProto uses a set of temporary coarse-grained scopes called the “transitional scopes.”
 
-This proposal describes a granular permission system which allows client apps to request access to only the resources they require. It also describes a system for Lexicon designers to define higher level permission sets, which makes the auth approval flow more legible to end users.
+This proposal introduces a complete system of permission scopes to be used with OAuth in the AT Protocol. These scopes are granular, meaning they allow applications to request access to only the resources they require. The goal for these scopes is to comprehensively describe all kinds of needed access in the AT Protocol.
 
-As a high-level summary:
+This proposal also introduces updates to Lexicon to facilitate the permission flows:
 
-- "Permissions" are a way to name and constrain access to protocol resources.  
-- Parameterized permissions can be encoded as scope strings in OAuth requests  
-- "Permission Sets" are cohesive groups of permissions, published alongside lexicon schemas  
-- Permission set resolution, caching, and updates have security and governance considerations, but improve legibility for users and provide flexibility for developers
+- Lexicon-defined descriptions of resources (such as records) which will be presented to users during the login flow.
+- Lexicon-defined permission bundles which make the authorization flow more legible to users.
+- Localization mechanisms for user-facing descriptions.
 
-Implementation Status: This proposal has been in development for some time and is relatively firm on the overall structure and semantics. Some details (like terminology, permission NSIDs, and Lexicon schema structure) are likely to change in the final specifications. Other tweaks are expected as we implement and experiment with the system.
+Implementation Status: This proposal has been in development for some time and is relatively firm on the overall structure and semantics. Some details (like naming, scope string syntax, and Lexicon schema structure) are likely to change in the final specifications. Other tweaks are expected as we implement and experiment with the system.
 
-## What Kind of Resources?
+## What Kinds of Resources?
 
-Auth Scopes relate to account resources on PDS instances:
+Permissions relate to account resources on PDS instances:
 
-- Public Repository (records and collections)  
-- Service Authentication (API calls to external services)  
-- Blobs (uploaded media files)  
-- Identity (DID and handle)  
+- Public Repository (records and collections)
+- Service Authentication (API calls to external services)
+- Blobs (uploaded media files)
+- Identity (DID and handle)
 - Account (hosting status, email address)
 
 As an example, the Bluesky Social client app needs access to:
 
-- Create, update, and delete public repo records of particular collections:  
-  - `app.bsky.actor.profile` (create, update)  
-  - `app.bsky.feed.post` (create, delete)  
-  - `app.bsky.feed.like` (create, delete)  
-- Upload blobs  
-- Use service proxying to authenticate users on the Bluesky appview  
-  - Audience: `did:web:bsky.app#bsky_appview`  
-  - Methods: `app.bsky.feed.getTimeline`  
-- Use service proxying to authenticate users on the Bluesky chat service  
-  - Audience: `did:web:api.bsky.chat#bsky_chat`  
-  - Methods: `<any>`  
-- Submit moderation reports to any configured moderation service:  
-  - Audience: `<any>`  
-  - Methods: `com.atproto.moderation.createReport`  
-- Update identity data (DID)  
-  - Handle updates  
-- Access and update account hosting details  
-  - Deactivate account  
+- Create, update, and delete public repo records of particular collections:
+  - `app.bsky.actor.profile` (create, update)
+  - `app.bsky.feed.post` (create, delete)
+  - `app.bsky.feed.like` (create, delete)
+- Upload blobs
+- Use service proxying to authenticate users on the Bluesky appview
+  - Audience: `did:web:bsky.app#bsky_appview`
+  - Methods: `app.bsky.feed.getTimeline`
+- Use service proxying to authenticate users on the Bluesky chat service
+  - Audience: `did:web:api.bsky.chat#bsky_chat`
+  - Methods: `<any>`
+- Submit moderation reports to any configured moderation service:
+  - Audience: `<any>`
+  - Methods: `com.atproto.moderation.createReport`
+- Update identity data (DID)
+  - Handle updates
+- Access and update account hosting details
+  - Deactivate account
   - Update account email
 
-Encoding these resources as conventional OAuth strings might look something like the following:
+The set of resources is likely to evolve and be extended over time. For example, we know that in the future PDS instances are likely to support private preferences, restricted group data, and encrypted messaging.
 
-```
-# NOTE: these scopes are for comparative purproses and are not the syntax that this document proposes 
+The initial set of named protocol resources are: `repo`, `rpc`, `blob`, `identity`, `account`.
 
-# account details
-- account:email
+## Permissions
 
-# create/manage blobs
-- blobs:create
-- blobs:update
-- blobs:maxSize:10000000
+Permissions are a new protocol primitive for describing access to a given resource. Each resource type has a defined set of parameters which can attenuate the permission.
 
-# CRUD public repo records
-- repo:app.bsky.feed.post:*
-- repo:app.bsky.feed.like:create
-- repo:app.bsky.feed.like:delete
-
-# service proxying for appview
-- serviceAuth:*@did:web:bsky.app
-
-# service proxying for chat
-- serviceAuth:*@did:web:api.bsky.chat
-
-# service proxying for feeds
-- serviceAuth:app.bsky.feed.getFeedSkeleton@*
-```
-
-While this syntax is terse and understandable, it assumes a global namespace of resource types (`repo`, `serviceAuth`, etc). The names, parameters, and syntax would all need to be defined and agreed upon at the protocol level, whereas atproto’s authorization system is open to evolution and extension.
-
-## Resources and Permissions
-
-For atproto, we know that the set of resources is likely to evolve and be extended over time. For example, we know that PDS instances are likely to support private preferences, restricted group data, and encrypted messaging in the future. Independent projects might want to add additional features and resource types, such as email or calendaring.
-
-To keep the system flexible, permissions are referenced by NSID and can be defined as Lexicon schemas. This includes the names and types of parameters that describe or constrain access to the permission. For example, public repository records could be referred to as `com.atproto.auth.repo` and defined as:
+Permissions can be represented as a JSON object, as part of the Lexicon language. An example permission looks like:
 
 ```json
 {
-  "lexicon": 1,
-  "id": "com.atproto.auth.repo",
-  "defs": {
-    "main": {
-      "type": "permission",
-      "description": "Grants access to records in the public repo",
-      "parameters": {
-        "type": "params",
-        "required": ["collection"],
-        "properties": {
-          "collection": {
-            "type": "string",
-            "description": "The collection being granted access to"
-          },
-          "create": {
-            "type": "boolean",
-            "default": false
-          },
-          "update": {
-            "type": "boolean",
-            "default": false
-          },
-          "delete": {
-            "type": "boolean",
-            "default": false
-          }
-        }
-      }
-    }
-  }
+  "type": "permission",
+  "resource": "repo",
+  "collection": ["app.bsky.feed.post"],
+  "action": "*",
 }
 ```
 
-Granular permissions have a string syntax which is the permission NSID, followed by any parameters in URL query parameter syntax:
+Here `type` indicates that this is a `permission`, and `resource` indicates that it covers records in the user's public repository. The `collection` field is specific to the `repo` resource type, and is an NSID indicating the type of records. Likewise `action` describes which actions are granted. Each permission resource type has defined parameters, default values, and semantics around overlapping or conflicting permissions.
+
+Some other examples (note that parameter names and semantics are not finalized):
 
 ```
-com.atproto.auth.repo?collection=app.bsky.feed.post&create=true
+{
+  "type": "permission",
+  "resource": "rpc",
+  // "lxm" is the existing field name used to indicate the Lexicon endpoint being authorized
+  "lxm": ["app.bsky.feed.getFeedSkeleton"],
+  // "aud" is short for "audience", indicating the remote service being authenticated with
+  "aud": ["*"]
+}
 
-com.atproto.auth.blob?create=true&maxSize=1000000
+{
+  "type": "permission",
+  "resource": "blob",
+  "accept": ["image/*"],
+  "maxSize": 1000000
+}
 ```
 
-The initial set of permission definitions would all be the `com.atproto.*` namespace, and we do not expect PDS implementations to dynamically resolve or support arbitrary permission definitions. The `permission` schema is only meant as a coordination mechanism for evolving these semantics over time or introducing new resources to the PDS.
+When used as an OAuth scope, a permission needs to be reduced to a string representation with no spaces. For this case, we use the following structure: `resource[:positional][?additional=params]`
 
-This proposal document does not include definitions for the initial permissions. They are expected to be published and included in the written specifications when the reference implementation is complete.
+For example:
 
-It is possible to request wildcard permissions on certain resources. For example, `com.atproto.auth.repo?collection=*&update=true&delete=true&create=true` would grant full permission over all records of any type in the repository. The user should be warned appropriately during the auth flow if such a powerful permission is being requested, and additional levels of authentication and confirmation may be required. Note that the wildcards are all or nothing. It is not possible to specify a namespace prefix, such as `collection=app.bsky.*`.
+```
+repo:app.bsky.feed.post
 
-Service Auth, which allows sending authenticated API requests to remote servers, is a good case study for wildcard behaviors. A common application extension point is to allow a specific request type to arbitrary service providers configured by the user. For example, users might configure new moderation services to send reports to, or subscribe to new feed generators. In other situations, such as private chat, a client could be restricted to a single provider (defined by the client), but use many API endpoints. If a permission requests a specific service provider, the auth server must resolve the service reference (DID) and display the service hostname which would be proxied to.
+rpc:app.bsky.feed.getFeedSkeleton?aud=*
 
-Parameterized permission strings referencing atproto resources are the minimal core of the Auth Scopes proposal. Client apps can request them in their OAuth scopes, Auth Servers (PDS or entryway) can render them to end users in the auth flow, and Resource Servers (PDS) can use them to allow or deny requests.
+blob?maxSize=1000000
+```
+
+The string syntax operates with the following rules:
+
+* The parameters of a permission are supplied as URL-encoded query parameters.
+* Resource types can specify one field as a positional argument.
+  * This positional argument depends on the resource type. (E.g. it differs in meaning between `repo` and `rpc`.)
+  * Positional arguments are optional. The same field could also be provided as query parameters. This is required if multiple values (an array) are provided for the same parameter in a single string representation.
+  * The positional argument should not include the prefix separator character (`:`), or characters which would require any form of escaping (such as "?")
+
+Permissions can be transformed back and forth between string representation and JSON object representation. A motivating use-case for the object representation will be described below.
+
+This proposal document does not include full definitions for the initial permissions. They are expected to be published and included in the written specifications when the reference implementation is complete.
+
+It is possible to request wildcard permissions on certain resources. For example, `repo:*` would grant full permission over all records of any type in the repository. The user should be warned appropriately during the auth flow if such a powerful permission is being requested, and additional levels of authentication and confirmation may be required. As a general design pattern, prefix matching of NSIDs (such as `repo:app.bsky.*`) is not supported for any of the initial resource types. See design notes at the end of this document for details, though note that each resource defines syntax and semantics for parameters, and this syntax could in theory be supported by new resources in the future.
+
+RPC calls, or Service Auth, allows sending authenticated API requests to remote servers. They are a good case study for wildcard behaviors. A common application extension point is to allow a specific request type to arbitrary service providers configured by the user. For example, users might configure new moderation services to send reports to, or subscribe to new feed generators. In other situations, such as private chat, a client could be restricted to a single provider (defined by the client), but use many API endpoints. If a permission requests a specific service provider, the auth server must resolve the service reference (DID) and display the service hostname which would be proxied to.
+
+To summarize the core permissions system described in this section:
+
+* client apps can request Permissions in their OAuth scopes
+* Auth Servers (PDS or entryway) can render them to end users in the auth flow
+* Resource Servers (PDS) can interpret them to allow or deny requests
+
+For very narrowly scoped client apps, this may be all the functionality required, and the additional functionality described below could be skipped.
 
 ## Permission Sets
 
-Full featured client apps will require a large number of granular permissions to function: dozens or even hundreds of individual permissions. This presents a user experience issue (long lists of permissions are pretty ugly), a developer experience issue (defining and maintaining these lists is toilsome). It is also a security concern: users who are routinely presented with long lists of scopes will become less discerning as to which scopes they approve and it becomes easier for an unscrupulous client developer to sneak in any scopes they like.
+Full featured client apps will require a large number of granular permissions to function: dozens or even hundreds of individual permissions. This presents a user experience challenge, as long lists of permissions are difficult to parse, and a developer experience issue, as defining and maintaining these lists is toilsome. It is also a security concern: users who are routinely presented with long lists of scopes will become less discerning as to which scopes they approve and it becomes easier for an unscrupulous client developer to sneak in any scopes they like.
 
-To simplify permission management, Lexicon designers will be allowed to define "sets" of permissions as part of the schemas they publish. These permission sets are themselves Lexicon schemas and are referred to by NSID. Auth Servers resolve and process them dynamically, and include human-meaningful names and descriptions which can be displayed to end users as part of the auth approval flow. Permission sets are published publicly and can be used by any client developer.
+To simplify permission management, Lexicon designers will be allowed to define "sets" of permissions as part of the schemas they publish. These permission sets are themselves Lexicon schemas and are referred to by NSID. For example:
 
-The example set below describes the basic permissions needed by a Bluesky client app. Remember that the specific terminology (eg, "permission-set" versus "auth-bundle"), parameters, and schema structure ("$type" versus "ref", etc) are likely to change.
+```
+app.bsky.authFull
+```
 
-```json
+This NSID could be defined as “permissions needed to create a fully-featured Bluesky Social client.”
+
+Auth Servers resolve, authenticate, and process permission-sets dynamically. Sets include human-meaningful names and descriptions which can be displayed to end users as part of the auth approval flow. Permission sets are published publicly and can be used by any client developer. (Caching and fallback behaviors for dynamic resolution are discussed below.)
+
+Expanding on our example, the permission-set below describes the basic permissions needed by a Bluesky client app. The final "full" permission-set will of course include many more permissions.
+
+*Note: the specific terminology ( "permission-set"), parameters, and schema structure ("type" versus "ref", etc) may change as this proposal evolves.*
+
+```
 {
   "lexicon": 1,
-  "id": "app.bsky.authBasic",
+  "id": "app.bsky.authFull",
   "defs": {
     "main": {
       "type": "permission-set",
@@ -156,28 +153,23 @@ The example set below describes the basic permissions needed by a Bluesky client
       ],
       "permissions": [
         {
-          "$type": "com.atproto.auth.repo",
-          "collection": "app.bsky.feed.post",
-          "create": true,
-          "update": true,
-          "delete": true
+          "type": "permission",
+          "resource": "repo",
+          "collection": ["app.bsky.feed.post"],
+          "action": "*"
         },
         {
-          "$type": "com.atproto.auth.repo",
-          "collection": "app.bsky.feed.like",
-          "create": true,
-          "update": true,
-          "delete": true
+          "type": "permission",
+          "resource": "repo",
+          "collection": ["app.bsky.feed.like"],
+          "action": "*"
         },
         {
-          "$type": "com.atproto.auth.repo",
-	    "collection": "app.bsky.feed.like",
-	    "create": true,
-	    "delete": true
-        },
-        {
-          "$type": "com.atproto.auth.endpoint",
-          // "aud" deferred to permission set parameter
+          "type": "permission",
+          "resource": "rpc",
+          // set of parameters to inherit from permission-set; syntax might change
+          "inherit": ["aud"],
+          // supplying multiple values in one permission, as a possible syntax
           "lxm": [
             "app.bsky.actor.getPreferences",
             "app.bsky.actor.putPreferences",
@@ -190,9 +182,10 @@ The example set below describes the basic permissions needed by a Bluesky client
           ]
         },
         {
-          "$type": "com.atproto.auth.endpoint",
-          "aud": "*",
-          "lxm": "app.bsky.feed.getFeedSkeleton"
+          "type": "permission",
+          "resource": "rpc",
+          "aud": ["*"],
+          "lxm": ["app.bsky.feed.getFeedSkeleton"]
         }
       ]
     }
@@ -200,38 +193,36 @@ The example set below describes the basic permissions needed by a Bluesky client
 }
 ```
 
-Note that permissions are expressed as objects in a permission set definition document, not rendered as scope strings. Permissions can be transformed back and forth between string representation and object representation.
-
-Permission sets can be referenced as scope strings similar to permissions, and requested in OAuth scopes. They can also be parameterized with URL query parameter syntax. Note that URL escaping is required to encode the hash symbol (\#) in query parameters. For example:
+Permission sets can be referenced as scope strings and requested in OAuth scopes by using the `include` resource and the NSID of the published set as the positional parameter. They can also be parameterized with URL query parameter syntax. For example:
 
 ```
-app.bsky.authBasic?aud=did:web:api.bsky.app%23bsky_appview
+include:app.bsky.authFull?aud=did:web:api.bsky.app%23bsky_appview
 ```
 
-Sets themselves do not define parameters. Instead, permissions define semantics around merging permission-level params and set-level params. In the example above, the `com.atproto.auth.endpoint` permission type (for [service auth](https://atproto.com/specs/xrpc#inter-service-authentication-jwt)) would declare that the `aud` parameter (specifying the audience service) may default to a set-level param if the more granular permission-level param is undefined. In the above example, the permission to call `app.bsky.feed.getFeedSkeleton` on any audience (wildcard) would be retained even with the `aud` defined on the set scope string.
+Sets themselves do not define parameters. Instead, permissions define semantics around merging permission-level params and set-level params, sometimes configured using attributes like `inherit`. In the example above, the `rpc` resource type (for [service auth](https://atproto.com/specs/xrpc#inter-service-authentication-jwt)) would declare that the `aud` parameter (specifying the audience service) may default to a set-level param if the more granular permission-level param is undefined. In the above example, the permission to call `app.bsky.feed.getFeedSkeleton` on any audience (wildcard) would be retained even with the `aud` defined on the set scope string.
 
-Clients are free to mix permission sets and granular permissions in their requested auth scopes. Auth Servers may attempt to proactively simplify permission requests presented to users. The motivation for this would be to reduce "permission review fatigue" for end users. The full set of permissions could be displayed in "fine print". For example, if a client requests a permission which is already covered by a set, the Auth Server could present just the set to the user. Or, more aggressively, an Auth Server might be configured to not prompt the common low-stakes permissions if a broad set of permissions are already being requested.
+Clients are free to mix permission sets and granular permissions in their requested auth scopes. Auth Servers will attempt to proactively simplify permission requests presented to users, so that individual permissions covered by a permission-set do not need to be rendered to the user. The full set of permissions could be displayed in "fine print". This behavior helps ensure a fallback behavior in the event that a permission-set can not be resolved, and it generally helps keep the auth screen simple for users.
 
 For example, a client might request:
 
 ```
 // basic bluesky auth (with bluesky appview)
-app.bsky.authBasic?aud=did:web:api.bsky.app%23bsky_appview
+include:app.bsky.authFull?aud=did:web:api.bsky.app%23bsky_appview
 
 // basic bluesky DMS auth (with bluesky chat service)
-chat.bsky.authBasic?aud=did:web:api.bsky.chat%23bsky_chat
+include:chat.bsky.authFull?aud=did:web:api.bsky.chat%23bsky_chat
 
-// blob uploads; Auth Server might decide not to show this permission request in the context of already requesting app.bsky.authBasic
-com.atproto.auth.blob?create=true&maxSize=1000000
+// blob uploads; Auth Server might decide not to show this permission request in the context of already requesting app.bsky.authFull
+blob?maxSize=1000000
 
-// service auth to all feed generators; this is already included in app.bsky.authBasic, so might not render in request flow
-com.atproto.auth.endpoint?aud=*&lxm=app.bsky.feed.getFeedSkeleton
+// service auth to all feed generators; this is already included in app.bsky.authFull, so might not render in request flow
+rpc:app.bsky.feed.getFeedSkeleton?aud=*
 
 // create statussphere statuses (a permission, not a permission set)
-com.atproto.auth.repo?collection=xyz.statusphere.status&create=true
+repo:xyz.statusphere.status
 ```
 
-Permission sets are Lexicon schemas, and are published and fetched using the Lexicon resolution functionality. In particular, sets are expected to be updated over time as new schemas are added to a namespace (eg, new record types or API endpoints). Auth Servers are expected to maintain a cache of resolved sets, but to re-resolve them periodically. The permissions associated with an Access Token should remain fixed, but when a client refreshes their tokens (obtaining a new access token), the computed permissions for the session may be updated to reflect changes to sets requested by the client.
+Permission sets are Lexicon schemas, and are published and fetched using the Lexicon resolution system, which includes cryptographic authentication. Permission sets are expected to be updated over time as new schemas are added to a namespace (eg, new record types or API endpoints). Auth Servers are expected to maintain a cache of resolved sets, but to re-resolve them periodically. The permissions associated with an Access Token should remain fixed, but when a client refreshes their tokens (obtaining a new access token), the computed permissions for the session may be updated to reflect changes to sets requested by the client.
 
 This adds an intentional degree of temporal dynamism to auth sessions involving Permission sets. Lexicon designers can define new resources (eg, record types), update published sets to include permissions to those resources. Client software can then be updated to take advantage of those new lexicons, without requiring users to re-authenticate their sessions.
 
@@ -243,10 +234,10 @@ Permission sets are limited to expressing permissions that reference resources u
 
 Authority is based on the relative structure of NSIDs, without "siblings" or special namespaces. Broadly, this ensures that sets can not request permissions across namespaces. Specifically:
 
-* Permission sets can address resources in the same NSID “group”; or “children” (sub-domains), recursively deep  
+* Permission sets can address resources in the same NSID “group”; or “children” (sub-domains), recursively deep
 * can not address “sibling groups" or “parents” in the NSID hierarchy
 
-For example, the set `app.bsky.feed.authOnlyPost` could include permissions to `app.bsky.feed.post` records and making `app.bsky.feed.getPostThread` API endpoint requests to remote services. But it could not grant permissions to `app.bsky.actor.profile`. A set `app.bsky.authBasics`, which is a level up in the hierarchy, could include permissions to all these resources, or even further down the hierarchy.
+For example, the set `app.bsky.feed.authOnlyPost` could include permissions to `app.bsky.feed.post` records and making `app.bsky.feed.getPostThread` API endpoint requests to remote services. But it could not grant permissions to `app.bsky.actor.profile`. A set `app.bsky.authFull`, which is a level up in the hierarchy, could include permissions to all these resources, or even further down the hierarchy.
 
 ### Permission Set Resolution, Caching, and Aggregators
 
@@ -262,6 +253,10 @@ As an optional mechanism to trigger a cache purge, client instances can set an u
 
 Lexicon Aggregators are proposed services which aggregate all published Lexicons, by monitoring the firehose. They are an *optional* mechanism to offload the work of resolution, by making API calls to an aggregator service instead of resolving DNS and connecting to a PDS directly. The degree to which an Auth Server offloads resolution and validation work to an aggregator is ultimately left to the Auth Server operator: for example whether the Auth Server re-verifies NSID DNS delegation, or verifies repo proof signatures.
 
+## Other Details and Mechanisms
+
+This section addresses some specific design decisions and updates to adjacent specifications.
+
 ### Lexicon Resolution Overrides
 
 Permission set dynamism is mostly intended to allow expansion of permissions over existing sessions, but permissions might also be removed. Lexicon designers should remove or attenuate permissions very sparingly, because it could break other software and sessions in the network.
@@ -272,22 +267,18 @@ Services which rely on resolution would be configured with an ordered list of ov
 
 The expectation is that a small handful of security teams would maintain override repos. If a disruptive change to a popular lexicon takes place, the team would publish an old version of the schema in their override repo. This process would be transparent and verifiable using the usual repo authentication process. Override repos can be used to address:
 
-- security incidents related to over-permissive auth scopes  
-- lexicon authority hijacking (eg, hacking DNS registrations)  
-- “self-destruction” of popular Lexicons  
+- security incidents related to over-permissive auth scopes
+- lexicon authority hijacking (eg, hacking DNS registrations)
+- “self-destruction” of popular Lexicons
 - abandoned lexicons (eg, domain registration lapses)
 
-Lexicon aggregators could help offload this behavior, by allowing override DIDs to be specified as part of Lexicon resolution API requests..
-
-## Other Details and Mechanisms
-
-This section addresses some specific design decisions and updates to adjacent specifications.
+Lexicon aggregators could help offload this behavior, by allowing override DIDs to be specified as part of Lexicon resolution API requests.
 
 ### No Partial NSID Wildcards
 
-For example, requesting This proposal prohibits partial wildcards (eg, prefix match), and only permits full wildcards (eg, any value is allowed). For example, `com.atproto.auth.repo?collection=app.bsky.*` is not allowed, but `com.atproto.auth.repo?collection=*` is allowed.
+This proposal prohibits partial wildcards (eg, prefix match), and only permits full wildcards (eg, any value is allowed). For example, `repo:app.bsky.*` is not allowed, but `repo:*` is allowed.
 
-This was discussed further in an earlier draft of this proposal: [https://github.com/bluesky-social/atproto/discussions/3655](https://github.com/bluesky-social/atproto/discussions/3655) 
+This was discussed further in an earlier draft of this proposal: [https://github.com/bluesky-social/atproto/discussions/3655](https://github.com/bluesky-social/atproto/discussions/3655)
 
 ### Auth Server / Resource Server Scope Synchronization
 
