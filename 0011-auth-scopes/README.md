@@ -1,6 +1,8 @@
 
 # 0011 Auth Scopes for ATProto
 
+*Leave feedback on this proposal [on Github Discussions](https://github.com/bluesky-social/atproto/discussions/4013)*
+
 OAuth enables applications to log into “Personal Data Servers” (PDSes) and access a user’s account. It is the preferred method for creating sessions. The OAuth flow requires permission “scopes” which describe the level of access granted with the session. At the time of writing, ATProto uses a set of temporary coarse-grained scopes called the “transitional scopes.”
 
 This proposal introduces a complete system of permission scopes to be used with OAuth in the AT Protocol. These scopes are granular, meaning they allow applications to request access to only the resources they require. The goal for these scopes is to comprehensively describe all kinds of needed access in the AT Protocol.
