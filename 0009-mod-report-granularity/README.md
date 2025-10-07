@@ -1,5 +1,12 @@
 # 0009: Moderation Report Granularity
 
+> [!IMPORTANT]
+> Update Oct 7, 2025: this document has been updated to reflect the final set of
+report reasons that will be implemented. Please note the changes and use the
+latest version of this document as the reference. See the [lexicon
+PR](https://github.com/bluesky-social/atproto/pull/4262) for
+additional information.
+
 Feedback and discussion on this proposal on Github Discussions:
 https://github.com/bluesky-social/atproto/discussions/3880
 
@@ -46,7 +53,7 @@ subcategories:
 - **Child Safety:** Various categories related to protection of minors
 - **Harassment:** Including targeted harassment, hate speech, trolling, and doxxing
 - **Misleading Content:** Including spam, scams, impersonation, and misinformation
-- **Civic Issues:** Including electoral process violations and voter interference
+- **Self-Harm or Dangerous Behaviors:** Harmful or high-risk activities
 - **Other Site Rules:** Including security violations and ban evasion
 
 ## Handling Sensitive Reports
@@ -60,8 +67,6 @@ only." At the moment, the following report reasons are marked as such:
 
 - `tools.ozone.report.defs#reasonChildSafetyCSAM`
 - `tools.ozone.report.defs#reasonChildSafetyGroom`
-- `tools.ozone.report.defs#reasonChildSafetyEndangerment`
-- `tools.ozone.report.defs#reasonChildSafetyPromotion`
 - `tools.ozone.report.defs#reasonChildSafetyOther`
 - `tools.ozone.report.defs#reasonViolenceExtremistContent`
 
@@ -78,7 +83,7 @@ usage as an optional, but recommended, migration path.
 - `com.atproto.moderation.defs#reasonMisleading` → `tools.ozone.report.defs#reasonMisleadingOther`
 - `com.atproto.moderation.defs#reasonSexual` → `tools.ozone.report.defs#reasonSexualUnlabeled`
 - `com.atproto.moderation.defs#reasonRude` → `tools.ozone.report.defs#reasonHarassmentOther`
-- `com.atproto.moderation.defs#reasonOther` → `tools.ozone.report.defs#reasonRuleOther`
+- `com.atproto.moderation.defs#reasonOther` → `tools.ozone.report.defs#reasonOther`
 - `com.atproto.moderation.defs#reasonAppeal` → `tools.ozone.report.defs#reasonAppeal`
 
 Apps, including Bluesky, should send reports using the reasons supported by a
@@ -106,48 +111,42 @@ appreciate your patience and consideration.
 | Category                  | Description                                                 | Report Reason                                     | Report Reason Lexicon             | Who will receive reports? |
 | ------------------------- | ----------------------------------------------------------- | ------------------------------------------------- | --------------------------------- | ------------------------- |
 | Child Safety              | Content harming or endangering minors' safety and wellbeing | Child Sexual Abuse Material (CSAM)                | #reasonChildSafetyCSAM            | Bluesky only              |
-|                           |                                                             | Grooming or Predatory Behavior                    | #reasonChildSafetyGroom           | Bluesky only              |
-|                           |                                                             | Minor Privacy Violation                           | #reasonChildSafetyMinorPrivacy    | Any                       |
-|                           |                                                             | Child Endangerment                                | #reasonChildSafetyEndangerment    | Bluesky only              |
-|                           |                                                             | Minor Harassment or Bullying                      | #reasonChildSafetyHarassment      | Any                       |
-|                           |                                                             | Promotion of Child Exploitation                   | #reasonChildSafetyPromotion       | Bluesky only              |
-|                           |                                                             | Other Child Safety                                | #reasonChildSafetyOther           | Bluesky only              |
-| Violence or Physical Harm | Threats, calls for violence, or graphic content             | Animal Welfare                                    | #reasonViolenceAnimalWelfare      | Any                       |
-|                           |                                                             | Threats or Incitement                             | #reasonViolenceThreats            | Any                       |
-|                           |                                                             | Graphic Violent Content                           | #reasonViolenceGraphicContent     | Any                       |
-|                           |                                                             | Self Harm                                         | #reasonViolenceSelfHarm           | Any                       |
-|                           |                                                             | Glorification of Violence                         | #reasonViolenceGlorification      | Any                       |
-|                           |                                                             | Extremist Content                                 | #reasonViolenceExtremistContent   | Bluesky only              |
-|                           |                                                             | Human Trafficking                                 | #reasonViolenceTrafficking        | Any                       |
-|                           |                                                             | Other Violent Content                             | #reasonViolenceOther              | Any                       |
-| Sexual and Adult Content  | Adult, child or animal sexual abuse                         | Adult Sexual Abuse Content                        | #reasonSexualAbuseContent         | Any                       |
+|                           |                                                             | Grooming or predatory behavior                    | #reasonChildSafetyGroom           | Bluesky only              |
+|                           |                                                             | Minor privacy violation                           | #reasonChildSafetyPrivacy         | Any                       |
+|                           |                                                             | Minor harassment or bullying                      | #reasonChildSafetyHarassment      | Any                       |
+|                           |                                                             | Other child safety                                | #reasonChildSafetyOther           | Bluesky only              |
+| Violence or Physical Harm | Threats, calls for violence, or graphic content             | Animal welfare                                    | #reasonViolenceAnimal             | Any                       |
+|                           |                                                             | Threats or incitement                             | #reasonViolenceThreats            | Any                       |
+|                           |                                                             | Graphic violent content                           | #reasonViolenceGraphicContent     | Any                       |
+|                           |                                                             | Glorification of violence                         | #reasonViolenceGlorification      | Any                       |
+|                           |                                                             | Extremist content                                 | #reasonViolenceExtremistContent   | Bluesky only              |
+|                           |                                                             | Human trafficking                                 | #reasonViolenceTrafficking        | Any                       |
+|                           |                                                             | Other violent content                             | #reasonViolenceOther              | Any                       |
+| Sexual and Adult Content  | Adult, child or animal sexual abuse                         | Adult sexual abuse content                        | #reasonSexualAbuseContent         | Any                       |
 |                           |                                                             | Non-Consensual Intimate Imagery                   | #reasonSexualNCII                 | Any                       |
-|                           |                                                             | Sextortion                                        | #reasonSexualSextortion           | Any                       |
-|                           |                                                             | Deepfake Adult Content                            | #reasonSexualDeepfake             | Any                       |
-|                           |                                                             | Animal Sexual Abuse                               | #reasonSexualAnimal               | Any                       |
-|                           |                                                             | Unlabelled Adult Content                          | #reasonSexualUnlabeled            | Any                       |
-|                           |                                                             | Other Sexual Violence Content                     | #reasonSexualOther                | Any                       |
+|                           |                                                             | Deepfake adult content                            | #reasonSexualDeepfake             | Any                       |
+|                           |                                                             | Animal sexual abuse                               | #reasonSexualAnimal               | Any                       |
+|                           |                                                             | Unlabelled adult content                          | #reasonSexualUnlabeled            | Any                       |
+|                           |                                                             | Other sexual violence content                     | #reasonSexualOther                | Any                       |
 | Harassment or Hate        | Targeted attacks, hate speech, or organized harassment      | Trolling                                          | #reasonHarassmentTroll            | Any                       |
-|                           |                                                             | Targeted Harassment                               | #reasonHarassmentTargeted         | Any                       |
-|                           |                                                             | Hate Speech                                       | #reasonHarassmentHateSpeech       | Any                       |
+|                           |                                                             | Targeted harassment                               | #reasonHarassmentTargeted         | Any                       |
+|                           |                                                             | Hate speech                                       | #reasonHarassmentHateSpeech       | Any                       |
 |                           |                                                             | Doxxing                                           | #reasonHarassmentDoxxing          | Any                       |
-|                           |                                                             | Other Harassing or Hateful Content                | #reasonHarassmentOther            | Any                       |
-| Misleading                | Spam, scams, false info or impersonation                    | Fake Account or Bot                               | #reasonMisleadingBot              | Any                       |
+|                           |                                                             | Other harassing or hateful content                | #reasonHarassmentOther            | Any                       |
+| Misleading                | Spam, scams, false info or impersonation                    | Fake account or bot                               | #reasonMisleadingBot              | Any                       |
 |                           |                                                             | Impersonation                                     | #reasonMisleadingImpersonation    | Any                       |
 |                           |                                                             | Spam                                              | #reasonMisleadingSpam             | Any                       |
 |                           |                                                             | Scam                                              | #reasonMisleadingScam             | Any                       |
-|                           |                                                             | Unlabelled GenAI or Synthetic content             | #reasonMisleadingSyntheticContent | Any                       |
-|                           |                                                             | Harmful False Claims                              | #reasonMisleadingMisinformation   | Any                       |
-|                           |                                                             | Other Misleading Content                          | #reasonMisleadingOther            | Any                       |
-| Breaking Network Rules    | Hacking, stolen content or prohibited sales                 | Hacking or System Attacks                         | #reasonRuleSiteSecurity           | Any                       |
-|                           |                                                             | Stolen Content                                    | #reasonRuleStolenContent          | Any                       |
-|                           |                                                             | Promoting or Selling Prohibited Items or Services | #reasonRuleProhibitedSales        | Any                       |
-|                           |                                                             | Banned User Returning                             | #reasonRuleBanEvasion             | Any                       |
+|                           |                                                             | False information about elections                 | #reasonMisleadingElections        | Any                       |
+|                           |                                                             | Other misleading content                          | #reasonMisleadingOther            | Any                       |
+| Breaking Network Rules    | Hacking, stolen content or prohibited sales                 | Hacking or system attacks                         | #reasonRuleSiteSecurity           | Any                       |
+|                           |                                                             | Promoting or selling prohibited items or services | #reasonRuleProhibitedSales        | Any                       |
+|                           |                                                             | Banned user returning                             | #reasonRuleBanEvasion             | Any                       |
 |                           |                                                             | Other                                             | #reasonRuleOther                  | Any                       |
-| Civic Integrity           | Electoral interference or political process violations      | Electoral Process Violations                      | #reasonCivicElectoralProcess      | Any                       |
-|                           |                                                             | Disclosure & Transparency Violations              | #reasonCivicDisclosure            | Any                       |
-|                           |                                                             | Voter Intimidation or Interference                | #reasonCivicInterference          | Any                       |
-|                           |                                                             | Election Misinformation                           | #reasonCivicMisinformation        | Any                       |
-|                           |                                                             | Impersonation of Electoral Officials/Entities     | #reasonCivicImpersonation         | Any                       |
-|                           |                                                             | Other                                             | #reasonCivicOther                 | Any                       |
+| Self-harm                 | Harmful or high-risk activities                             | Content promoting or depicting self-harm          | #reasonSelfHarmContent            | Any                       |
+|                           |                                                             | Eating disorders                                  | #reasonSelfHarmED                 | Any                       |
+|                           |                                                             | Dangerous challenges or activities                | #reasonSelfHarmStunts             | Any                       |
+|                           |                                                             | Dangerous substances or drug abuse                | #reasonSelfHarmSubstances         | Any                       |
+|                           |                                                             | Other dangerous content                           | #reasonSelfHarmOther              | Any                       |
 | Other                     | An issue not included in these options                      | [none]                                            | #reasonOther                      | Any                       |
+| Appeal                    | Issued for appeals                                          | [none]                                            | #reasonAppeal                     | Any                       |
