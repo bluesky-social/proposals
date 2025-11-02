@@ -1,7 +1,7 @@
 0012: Infrastructure Abuse Notices
 ==================================
 
-*Join the [Github](https://github.com/bluesky-social/atproto/discussions) discussion here.*
+*Join the [Github discussion](https://github.com/bluesky-social/atproto/discussions/4323).*
 
 *This is a early proposal for discussion and feedback, particularly related to analogous systems in other ecosystems. Nothing in this document has been implemented or finalized.*
 
@@ -86,6 +86,8 @@ Should moderation services send notices to unknown services by default? This mig
 Should PDS software have a default configuration to accept and auto-action notices from known moderation services? Again, this could be very beneficial in reducing abuse, but could also have negative long-term consequences. It would remove agency and awareness from operators, and put a large degree of network power in the hands of the configured authorities. A safer default configuration would be to accept notices from some known services, but only notify admins via email.
 
 A common concern when defending against organized abuse is that rapid feedback loops help attackers understand how they are being detected, and iterate on their methods. Services could inject small delays in sending notices to mask techniques. If a PDS is confirmed to be operated by a bad actor, a moderation service might chose not to send them notices at all.
+
+How much of this system should be transparent to end accounts, and does that transparency need to be enabled at a technical level? There is an argument that users would want to know which moderation services their PDS operator collaborates with, possibly even before they create an account. On the other hand, PDS operators have the ultimate authority to review and ignore notices. Anti-abuse is inherently adversarial, and publicly revealing collaborations could have unintended consequences. This seems best left to service operators to communicate.
 
 The PDS reference implementation could support a more flexible filtering and rules system. For examples, logic like "if report comes from X and is type Y with confidence ≥=0.7, then send email to admin; If ≥0.9 then suspend entire account; but limit actions to 5 accounts a day". This can rapidly spiral in complexity and become difficult to understand and debug. And at the same time would not meet the desires of many operators. It is possible that a slightly more granular system would make sense, but the general approach here is to promote the development of a "sidecar" service which can be more flexible and accessible.
 
