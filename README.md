@@ -25,3 +25,7 @@ Please open issues and PRs to discuss the content.
 ## [0010: Client assertion backend](./0010-client-assertion-backend/)
 
 ## [0011: Auth Scopes](./0011-auth-scopes/)
+
+## [0012: Infrastructure Abuse Notices](./0012-infra-abuse-notices/)
+
+## [0013: Consistent References to DID Services](./0013-service-auth-refs/)
