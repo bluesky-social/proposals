@@ -1,7 +1,7 @@
 0013: Consistent References to DID Services
 ============================================
 
-*Join the [Github discussion](https://github.com/bluesky-social/atproto/discussions).*
+*Join the [Github discussion](https://github.com/bluesky-social/atproto/discussions/4708).*
 
 This is a request for feedback on a proposed change to how inter-service auth tokens, PDS request proxying, and OAuth permissions all combine in atproto.
 
