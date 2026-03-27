@@ -1,19 +1,21 @@
 0014: PDS-to-PDS Repository Migration
 =====================================
 
+> *Author: Clinton Bowen · Date: 2026-03-20 · Epistemic status: Early draft / community proposal, not yet adopted by the protocol team · Discussion: https://discourse.atprotocol.community/t/proposal-0014-pds-to-pds-repository-migration/686*
+
 ## Summary
 
-This proposal introduces a destination-initiated, encrypted account transfer protocol for AT Protocol. A user navigates to the destination PDS's migration web UI, authorizes access to their source PDS via OAuth, and the destination PDS pulls all account data in a single streaming HTTP response encrypted with HPKE. Three new XRPC endpoints (`exportAccount`, `completeTransfer`, `getTransferStatus`) and a `/.well-known/atproto-transfer` discovery document replace the current client-orchestrated migration model with a direct, encrypted PDS-to-PDS transfer.
+This proposal introduces a destination PDS initiated account (repo) migration protocol for AT Protocol. The aim is for a user to initiate account migration at the PDS they want to migrate to.  The proposal presents both a web UI flow and a corresponding XRPC based API, authorizes access to their source PDS via OAuth, and the destination PDS pulls account data directly using existing ATProto sync endpoints (`getRepo`, `listBlobs`, `getBlob`, `getPreferences`). Two new XRPC endpoints (`exportAccount` for private state transfer, `completeTransfer` for PLC operation signing) and an optional `getTransferStatus` polling endpoint replace the current client-orchestrated migration model with a direct, server-to-server transfer.
 
 ## Motivation
 
-Account (repo) portability is fundamental for the decentralized architecture of AT Protocol and conforms to the AT Protocol [ethos][atproto-ethos].
+Account portability is fundamental for the decentralized architecture of AT Protocol and conforms to the AT Protocol [ethos][atproto-ethos].
 
 The current migration architecture, while functional, has a less than desirable user experience.
 
 ### Current Migration Flow
 
-Today, account migration is a **client-orchestrated, multi-step process** requiring 14+ individual XRPC calls across two PDS instances and the PLC directory. The flow proceeds through four phases:
+Today, account migration typically follows a documented [migration flow][newbold-migration] that consists of a client, two PDS instances, and the PLC directory. The flow proceeds through four phases:
 
 1. **Account creation**: The client obtains a service auth JWT from the old PDS (`com.atproto.server.getServiceAuth`), then creates a deactivated account on the new PDS (`com.atproto.server.createAccount`) using its existing DID.
 
@@ -23,36 +25,25 @@ Today, account migration is a **client-orchestrated, multi-step process** requir
 
 4. **Activation**: The client activates the new account (`com.atproto.server.activateAccount`) and deactivates the old one (`com.atproto.server.deactivateAccount`).
 
-This flow is implemented by two tools today: the `goat` CLI (maintained by Bluesky) and PDS Moover (a community web application by Bailey Townsend). Both suffer from the same structural limitations.
-
 ### Documented Pain Points
 
 **Sequential blob transfer is the primary bottleneck.** Repo migrators today require a user to download every blob from the old PDS and reupload to the new PDS individually. The Bluesky PDS `uploadBlob` implementation enforces a rate limit of [1,000 uploads per day][uploadblob-rate-limit], making large migrations impossible within a single session.
 
 **No resume capability.** If the transfer fails mid-process (network timeout, PDS restart, blob upload error), there is no standardized way to resume.
 
-**Blob size limits cause silent failures.** PDS servers may have maximum blob upload limits that may make migration from one server to another difficult if a repo has a very large blob (e.g. video). For the Bluesky PDS implementation, [PR #4202][pr-4202] proposes making `uploadBlob` rate limits configurable (2,500/hour vs the current 1,000/day), but this doesn't address the overall issues of the migration experience in AT Protocol today.
+**Blob size limits and rate limiting** PDS servers may have maximum blob upload limits that may make migration from one server to another difficult if a repo has a very large blob (e.g. video). For the Bluesky PDS implementation, [PR #4202][pr-4202] proposes making `uploadBlob` rate limits configurable (2,500/hour vs the current 1,000/day), but this doesn't address the overall issues of the migration experience in AT Protocol today.
 
-**PLC tokens expire under time pressure.** The email-delivered PLC operation signature token expires within a specified TTL, creating urgency during what is already a stressful, multi-step process.
+**PLC tokens expire under time pressure.** The PLC operation signature verification code (typically delivered via email) expires within a specified TTL, creating urgency during what is already a stressful, multi-step process.  It has been documented where users step away from their computers, only to come back and miss the opportunity to exercise the token before expiry.
 
 ### Why PDS-to-PDS?
 
-A direct PDS-to-PDS transfer addresses all of these issues:
+A direct PDS-to-PDS transfer can address all of these issues:
 
-- **Improves UX**: The user navigates to the destination PDS, confirms via OAuth, and waits — no CLI tools, no manual blob management, no keeping a browser tab open.
-- **Eliminates the client bottleneck**: Data moves directly between servers over datacenter-grade connections rather than through the user's device and network.
-- **Enables streaming**: The destination PDS pulls all account data in a single streaming response — repository, blobs, preferences, and private state.
-- **Provides application-layer encryption**: HPKE encryption ensures confidentiality of account data independent of transport security, protecting against TLS-terminating intermediaries (CDNs, reverse proxies, load balancers).
+- **Improves UX**: The user SHOULD navigate to a web UI at the destination PDS they want to migrate to; and admitting sufficient OAuth permissions for the web UI, the destination PDS can migrate the repo from the source PDS to itself.
+- **Eliminates the client bottleneck**: Data moves directly between PDS servers, eliminating the migration client needed in today's migration flow utilizing the user's compute resources and bandwidth.
+- **Enables efficient transfer**: The destination PDS pulls repo, blobs, and preferences using existing ATProto sync endpoints — `uploadBlob` rate limits do not apply because blobs are written directly to the destination's blob store.
 
-### Why HPKE?
-
-HPKE ([RFC 9180][rfc-9180]) is the IETF's modern standard for hybrid public-key encryption, already deployed in TLS Encrypted Client Hello, Oblivious HTTP ([RFC 9540][rfc-9540]), and MLS ([RFC 9420][rfc-9420]).
-
-Key advantages with HPKE base mode:
-
-- **Sender forward secrecy**: Every encryption operation generates a fresh ephemeral key. Compromise of the sender's long-term state does not compromise past transfers.
-- **Defense-in-depth**: Data is encrypted to the destination PDS's public key before leaving the source PDS, so TLS-terminating intermediaries cannot observe account data.
-- **Algorithm agility**: The JOSE-HPKE framework supports algorithm negotiation, enabling future migration to post-quantum hybrid suites without structural changes.
+**Remark**: the web UI performs a set of XRPC API calls necessary for repo migration. i.e. it is not necessary to use a web UI as long as the PDS offers a way to perform the necessary set of operations to perform the migration flow as specified below.
 
 ## Specification
 
@@ -69,407 +60,49 @@ sequenceDiagram
     Dest->>Source: Resolve DID → discover source PDS
 
     Note over Dest: OAuth 2.1 authorization flow
-    Dest->>Source: Redirect user to authorize (rpc: scopes)
+    Dest->>Source: Redirect user to authorize
     Source-->>User: "Authorize migration to destination.pds.example?"
     User->>Source: Approve
     Source-->>Dest: Authorization code → access token
 
-    Note over Dest: Data transfer (single streaming response)
-    Dest->>Source: POST exportAccount(did, transferId, encryptionKey)
-    Source-->>Dest: Streaming encrypted frames:<br/>repo CAR → blobpacks → preferences → private state
+    Dest->>Source: GET getServiceAuth(aud=dest DID, lxm=createAccount)
+    Source-->>Dest: Service auth JWT
+    Dest->>Dest: createAccount(did, deactivated=true) [Bearer: service auth JWT]
 
-    Note over Dest: Decrypt, verify, import each frame
+    Dest->>Source: POST exportAccount(did, transferId)
+    Source-->>Dest: { privateState }
 
-    User->>Dest: Enter PLC signature token (from email)
+    Dest->>Source: GET getRepo(did) → CAR
+    Dest->>Dest: importRepo(CAR)
+
+    Dest->>Source: GET listBlobs(did) → CID list (paginated)
+    loop For each blob CID
+        Dest->>Source: GET getBlob(did, cid)
+        Dest->>Dest: Store blob locally
+    end
+
+    Dest->>Source: GET getPreferences → import preferences
+
+    Note over Dest,Source: Data transfer complete — token issued now, after all data is safely transferred
+    Dest->>Source: POST requestPlcOperationSignature
+    Source-->>User: PLC verification code (typically email)
+
+    User->>Dest: Enter PLC verification code
     Dest->>Source: POST completeTransfer(did, transferId, plcToken, newKeys)
     Source-->>Dest: Signed PLC operation
 
+    Dest->>Dest: submitPlcOperation(signedPlcOperation)
     Dest->>PLC: Submit PLC operation
     PLC-->>Dest: Confirmed
 
     Dest->>Dest: Activate account
-    Source->>Source: Deactivate account (retain 30 days)
+    Source->>Source: Deactivate account (retain per Section 7)
     Dest-->>User: Migration complete!
 ```
 
-### 1. Well-Known Endpoint: `/.well-known/atproto-transfer`
+### 1. Transfer Flow
 
-Each PDS that supports receiving inbound account transfers MUST serve a JSON document at `/.well-known/atproto-transfer` per [RFC 8615][rfc-8615]. This endpoint is unauthenticated and publicly accessible.
-
-#### 1.1 Response Format
-
-```json
-{
-  "version": 1,
-  "did": "did:web:pds.example.com",
-  "algorithms": ["HPKE-3", "HPKE-4"],
-  "keys": {
-    "keys": [
-      {
-        "kty": "OKP",
-        "crv": "X25519",
-        "x": "base64url-encoded-public-key",
-        "kid": "01KKQNKCFPEPD6MWJ7AZKRWFZ9",
-        "alg": "HPKE-3",
-        "use": "enc",
-        "exp": 1743465600
-      }
-    ]
-  }
-}
-```
-
-#### 1.2 Field Definitions
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `version` | integer | Yes | Schema version. Currently `1`. |
-| `did` | string | Yes | The DID of the PDS service (e.g., `did:web:pds.example.com`). Used to verify identity during transfer. See [Proposal 0010][proposal-0010] for guidance on PDS service DIDs. |
-| `algorithms` | string[] | Yes | Ordered list of supported [JOSE-HPKE][jose-hpke] algorithm identifiers, in preference order. See Section 1.3. |
-| `keys` | JWK Set | Yes | A JWK Set containing one or more encryption public keys. Each key MUST include `kid`, `alg`, `use` (always `"enc"`), and SHOULD include `exp` (Unix timestamp). |
-
-#### 1.3 Algorithm Requirements
-
-PDS implementations MUST support at least one of the following algorithm suites:
-
-| Identifier | KEM | KDF | AEAD | JWK kty/crv | Nk (key) | Nn (nonce) |
-|---|---|---|---|---|---|---|
-| `HPKE-3` | DHKEM(X25519, HKDF-SHA256) | HKDF-SHA256 | AES-128-GCM | OKP / X25519 | 16 bytes | 12 bytes |
-| `HPKE-4` | DHKEM(X25519, HKDF-SHA256) | HKDF-SHA256 | ChaCha20Poly1305 | OKP / X25519 | 32 bytes | 12 bytes |
-
-`HPKE-3` is RECOMMENDED as the primary algorithm. `HPKE-4` SHOULD be supported as a fallback for environments without AES hardware acceleration. Both provide 128-bit security.
-
-Additional algorithms from the JOSE-HPKE registry MAY be advertised for forward compatibility, including future post-quantum hybrid suites.
-
-> **Note:** The `HPKE-3` and `HPKE-4` identifiers are provisional. Final identifiers will be assigned by the JOSE-HPKE registry upon publication of `draft-ietf-jose-hpke-encrypt` as an RFC. Implementations SHOULD support both provisional and eventual registered identifiers during the transition period.
-
-#### 1.4 Key Lifecycle
-
-Keys published at the well-known endpoint are long-lived (weeks to months) but MUST be rotated periodically:
-
-- PDS implementations SHOULD rotate HPKE keys at least every 90 days.
-- During rotation, publish both old and new keys (with distinct `kid` values) to allow in-flight transfers to complete.
-- Remove expired keys after a grace period (RECOMMENDED: 7 days after `exp`).
-- Key rotation MUST NOT invalidate active transfer sessions that are using a key that was valid at session creation time.
-
-#### 1.5 Caching
-
-Clients SHOULD cache the well-known document for no more than 1 hour. The PDS SHOULD serve `Cache-Control: public, max-age=3600` headers.
-
-### 2. Transfer Protocol
-
-The transfer protocol uses a **destination-initiated pull model**: the destination PDS authenticates to the source PDS via OAuth and pulls account data in a single streaming response.
-
-#### 2.1 `com.atproto.transfer.exportAccount`
-
-Called by the destination PDS on the source PDS. Streams the entire account as HPKE-encrypted frames.
-
-**Request:**
-
-```
-POST /xrpc/com.atproto.transfer.exportAccount
-Authorization: DPoP <access-token>
-DPoP: <dpop-proof-jwt>
-Content-Type: application/json
-
-{
-  "did": "did:plc:abc123",
-  "transferId": "019537a1-7e28-7def-8c56-3a8b69e2d471",
-  "algorithm": "HPKE-3",
-  "encryptionKey": {
-    "kty": "OKP",
-    "crv": "X25519",
-    "x": "<base64url-destination-public-key>",
-    "kid": "transfer-key-2026-03",
-    "alg": "HPKE-3",
-    "use": "enc"
-  }
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `did` | string | Yes | The DID of the account to export. |
-| `transferId` | string | Yes | UUIDv7 generated by the destination PDS ([RFC 9562][rfc-9562]). |
-| `algorithm` | string | Yes | The HPKE algorithm suite to use (from the destination's well-known endpoint). |
-| `encryptionKey` | JWK | Yes | The destination PDS's HPKE public key for encrypting the response. |
-
-**Response:**
-
-```
-HTTP/1.1 200 OK
-Content-Type: application/octet-stream
-Atproto-Transfer-Enc: <base64url-encapsulated-key>
-Atproto-Transfer-Algorithm: HPKE-3
-
-[streaming encrypted frames]
-```
-
-The response body is a sequence of encrypted frames (Section 2.5) containing, in order:
-
-1. Repository CAR (`application/vnd.ipld.car`)
-2. One or more blobpacks (`application/vnd.atproto.transfer.blobpack`) — custom binary format for streaming multiple blobs; see Addendum
-3. Preferences (`application/vnd.atproto.preferences+json`) — user preferences as a JSON array of `app.bsky.actor.defs#preferences` objects
-4. Private account state (`application/vnd.atproto.transfer.account-state+cbor`) — CBOR map of private account fields (email, invite codes, etc.); see Section 2.9
-
-The source PDS MUST include all content types it has data for. Empty content types (e.g., no blobs) MAY be omitted. The source PDS MUST include all blobs whose CIDs are referenced by committed records in the exported CAR. Blobs present in the source's blob store but not referenced by any committed record (e.g., orphaned uploads) MAY be included. The source PDS SHOULD also trigger a PLC operation signature token email during this call (equivalent to calling `com.atproto.identity.requestPlcOperationSignature`).
-
-**Authorization:** Requires `rpc:com.atproto.transfer.exportAccount` scope (Section 3.3). The source PDS MUST verify that the OAuth token's `sub` claim matches the requested `did`.
-
-#### 2.2 `com.atproto.transfer.completeTransfer`
-
-Called by the destination PDS on the source PDS after data import is complete. The source PDS signs a PLC operation transferring identity to the destination.
-
-**Request:**
-
-```
-POST /xrpc/com.atproto.transfer.completeTransfer
-Authorization: DPoP <access-token>
-DPoP: <dpop-proof-jwt>
-Content-Type: application/json
-
-{
-  "did": "did:plc:abc123",
-  "transferId": "019537a1-7e28-7def-8c56-3a8b69e2d471",
-  "plcSignatureToken": "<email-delivered-token>",
-  "newPdsEndpoint": "https://destination.pds.example",
-  "newSigningKey": "did:key:zQ3sh...",
-  "newRotationKeys": ["did:key:zQ3sh..."]
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `did` | string | Yes | The DID of the migrating account. |
-| `transferId` | string | Yes | Must match the `transferId` from `exportAccount`. |
-| `plcSignatureToken` | string | Yes | Email-delivered PLC operation signature token. |
-| `newPdsEndpoint` | string | Yes | The destination PDS's service endpoint URL. |
-| `newSigningKey` | string | Yes | The destination PDS's signing key (`did:key` format). |
-| `newRotationKeys` | string[] | Yes | Rotation keys for the updated DID document. |
-
-**Response:**
-
-```json
-{
-  "signedPlcOperation": { ... }
-}
-```
-
-The source PDS constructs and signs a PLC operation that updates the DID document to point to the destination PDS, then deactivates the account locally (retaining data per Section 2.8). The destination PDS submits the signed PLC operation to the PLC directory.
-
-**Authorization:** Requires `rpc:com.atproto.transfer.completeTransfer` scope. The source PDS MUST verify the `plcSignatureToken` and that the `transferId` corresponds to a completed `exportAccount` call.
-
-#### 2.3 `com.atproto.transfer.getTransferStatus`
-
-Optional polling endpoint available on either PDS.
-
-**Request:**
-
-```
-GET /xrpc/com.atproto.transfer.getTransferStatus?transferId=019537a1-7e28-7def-8c56-3a8b69e2d471
-Authorization: DPoP <access-token>
-DPoP: <dpop-proof-jwt>
-```
-
-**Response:**
-
-```json
-{
-  "transferId": "019537a1-7e28-7def-8c56-3a8b69e2d471",
-  "did": "did:plc:abc123",
-  "status": "exporting",
-  "progress": {
-    "framesReceived": 12,
-    "bytesReceived": 104857600
-  }
-}
-```
-
-Status values: `pending`, `exporting`, `importing`, `completing`, `completed`, `failed`.
-
-#### 2.4 Encryption
-
-Each transfer session uses HPKE encryption with per-frame key derivation.
-
-1. The source PDS generates an ephemeral keypair and calls `SetupBaseS(receiver_pk, info)` where:
-
-   ```
-   info = "atproto-transfer-v1"
-   ```
-
-2. The source PDS returns the encapsulated key (`enc`) in the `Atproto-Transfer-Enc` response header.
-
-3. Both sides derive the `transfer_secret` using the HPKE Export mechanism ([RFC 9180 Section 5.3][rfc-9180]):
-
-   ```
-   transfer_secret = context.Export(exporter_context, L)
-   ```
-
-   where:
-
-   ```
-   exporter_context = concat(
-     "atproto-transfer-v1",   // protocol identifier
-     0x00,                     // separator
-     utf8(did),                // migrating account DID
-     0x00,                     // separator
-     utf8(transfer_id)         // from exportAccount request
-   )
-
-   L = 32                      // 256 bits
-   ```
-
-   The `transfer_secret` is a pseudorandom key (PRK) suitable for direct use with HKDF-Expand ([RFC 5869][rfc-5869]).
-
-4. For each frame, a per-frame symmetric key and nonce are derived:
-
-   ```
-   frame_key = HKDF-Expand(
-     transfer_secret,
-     concat("atproto-frame-key", 0x00, uint32_be(frame_number)),
-     Nk
-   )
-   frame_nonce = HKDF-Expand(
-     transfer_secret,
-     concat("atproto-frame-nonce", 0x00, uint32_be(frame_number)),
-     Nn
-   )
-   ```
-
-   where Nk and Nn are determined by the negotiated AEAD algorithm (Section 1.3).
-
-5. Each frame is encrypted using the AEAD algorithm with the derived key, nonce, and Additional Authenticated Data (AAD):
-
-   ```
-   aad = concat(
-     utf8("atproto-transfer-v1"),
-     0x00,
-     utf8(did),
-     0x00,
-     utf8(transfer_id),
-     0x00,
-     uint32_be(frame_number),
-     0x00,
-     utf8(content_type)
-   )
-   ```
-
-   The AAD binding prevents frame reordering, type confusion, cross-session replay, and cross-account substitution.
-
-6. The destination PDS calls `SetupBaseR(enc, receiver_sk, info)` to derive the same context and `transfer_secret`, then decrypts each frame independently.
-
-**Nonce uniqueness:** Each frame derives a unique `(key, nonce)` pair from its frame number. Implementations MUST NOT encrypt two payloads with the same frame number within a transfer session. Implementations MUST NOT reuse `transfer_secret` across sessions.
-
-> **Extensibility note:** Per-frame key derivation is naturally extensible to parallel upload in a future protocol version. Because each frame is independently encrypted, frames could be uploaded via separate HTTP requests without requiring sequential nonce management.
-
-#### 2.5 Stream Frame Format
-
-The encrypted response body consists of sequential frames. Each frame is prefixed with a header:
-
-```
-[4 bytes: frame_number (uint32, big-endian)]
-[4 bytes: content_type_length (uint32, big-endian)]
-[N bytes: content_type (UTF-8 string)]
-[4 bytes: ciphertext_length (uint32, big-endian)]
-[M bytes: ciphertext (AEAD ciphertext + authentication tag)]
-```
-
-Frames are numbered sequentially starting from 0. The receiver reads frames in order until the HTTP response stream ends. If the stream ends mid-frame, the transfer has failed and SHOULD be retried from scratch.
-
-**Verification per frame type:**
-
-- **Repository CAR**: Validate the Merkle tree structure and signed commit.
-- **Blobpack**: Verify each blob's CID against its content (see Addendum).
-- **Post-import blob reconciliation**: After all frames are processed, the destination SHOULD
-  call `com.atproto.repo.listMissingBlobs` against its own store to confirm that every blob
-  CID referenced in the imported CAR is present. Any deficit SHOULD be recovered by fetching
-  missing blobs from the source via `com.atproto.sync.getBlob` (authorized by the
-  `rpc:com.atproto.sync.getBlob` scope in the migration access token) before calling
-  `completeTransfer`. Blobs received in blobpack frames whose CIDs do not appear in any
-  imported record MAY be stored or discarded at the destination's discretion.
-- **Preferences**: Validate JSON schema conformance.
-- **Private state**: Validate CBOR structure against Section 2.9.
-
-#### 2.6 Error Handling
-
-| Error Code | HTTP | Description |
-|---|---|---|
-| `AccountNotFound` | 404 | The requested DID is not hosted on this PDS. |
-| `TransferNotAuthorized` | 403 | OAuth token missing, invalid, or insufficient scope. |
-| `TransferAlreadyActive` | 409 | A transfer is already in progress for this DID. |
-| `TransferNotFound` | 404 | The `transferId` does not match any known transfer. |
-| `InvalidPlcToken` | 400 | The PLC signature token is invalid or expired. |
-| `AccountDeactivated` | 400 | The account has already been deactivated. |
-| `ExportFailed` | 500 | Internal error during data export. |
-
-All error responses use the standard XRPC error format:
-
-```json
-{
-  "error": "TransferNotAuthorized",
-  "message": "OAuth token is missing required rpc: scope for this endpoint"
-}
-```
-
-#### 2.7 Transport Requirements
-
-All transfer communication MUST use HTTPS with TLS 1.3 ([RFC 8446][rfc-8446]) or TLS 1.2. Implementations MUST follow [RFC 9325][rfc-9325] for secure TLS configuration. TLS early data (0-RTT) MUST NOT be used for `exportAccount` or `completeTransfer` requests due to replay risks.
-
-#### 2.8 Private State Schema
-
-The `application/vnd.atproto.transfer.account-state+cbor` content type carries implementation-specific private data. To enable cross-implementation transfers, this section defines a minimum common schema that all implementations SHOULD support.
-
-**Common fields (RECOMMENDED):**
-
-| CBOR Key | Type | Description |
-|---|---|---|
-| `email` | text string | Account email address |
-| `emailConfirmed` | boolean | Whether the email has been verified |
-| `inviteCodes` | array of text strings | Unused invite codes |
-
-**Implementation-specific fields (OPTIONAL):**
-
-| CBOR Key | Type | Description |
-|---|---|---|
-| `appPasswords` | array of maps | Hashed application passwords (hash algorithm is implementation-specific) |
-| `notificationRouting` | map | Notification delivery configuration |
-| `mutedWords` | array of text strings | User's muted word list |
-| `pinnedFeeds` | array of text strings | AT URIs of pinned feed generators |
-
-Implementations SHOULD include all common fields and MAY include additional implementation-specific fields. The destination PDS MUST silently ignore fields it does not recognize. The destination PDS MUST import all recognized common fields.
-
-> **Note:** A full private state schema standardization is deferred to future work. This minimum schema enables the most critical data (email address, invite codes) to survive cross-implementation transfers. App passwords may not be portable between different PDS implementations due to differing hash algorithms; users SHOULD be warned that app passwords may need to be regenerated after migration.
-
-### 3. Web UI Flow (OAuth 2.1)
-
-PDS implementations SHOULD serve a web-based migration interface that allows users to initiate transfers without CLI tools.
-
-#### 3.1 Authorization Model
-
-The destination PDS acts as an OAuth 2.1 client to the source PDS. The user authorizes the destination PDS to export their account data and complete the identity transfer. This follows the same OAuth framework defined in [Proposal 0004][proposal-0004].
-
-The destination PDS publishes OAuth client metadata at:
-
-```
-https://destination.pds.example/.well-known/oauth-client-metadata/migration
-```
-
-```json
-{
-  "client_id": "https://destination.pds.example/.well-known/oauth-client-metadata/migration",
-  "client_name": "PDS Account Migration — destination.pds.example",
-  "grant_types": ["authorization_code"],
-  "response_types": ["code"],
-  "scope": "rpc:com.atproto.transfer.exportAccount rpc:com.atproto.transfer.completeTransfer rpc:com.atproto.transfer.getTransferStatus rpc:com.atproto.sync.getBlob",
-  "redirect_uris": ["https://destination.pds.example/migrate/callback"],
-  "token_endpoint_auth_method": "none",
-  "dpop_bound_access_tokens": true,
-  "application_type": "web",
-  "require_pushed_authorization_requests": true
-}
-```
-
-#### 3.2 User Flow (Destination-Initiated)
+The following steps describe the complete destination-initiated transfer sequence. Both API clients and web UI implementations MUST follow this ordering.
 
 1. **User navigates** to `https://destination.pds.example/migrate`.
 
@@ -490,7 +123,7 @@ https://destination.pds.example/.well-known/oauth-client-metadata/migration
    response_type=code&
    client_id=https://destination.pds.example/.well-known/oauth-client-metadata/migration&
    redirect_uri=https://destination.pds.example/migrate/callback&
-   scope=rpc:com.atproto.transfer.exportAccount%20rpc:com.atproto.transfer.completeTransfer%20rpc:com.atproto.transfer.getTransferStatus%20rpc:com.atproto.sync.getBlob&
+   scope=rpc:com.atproto.server.getServiceAuth%20rpc:com.atproto.transfer.exportAccount%20rpc:com.atproto.transfer.completeTransfer%20rpc:com.atproto.transfer.getTransferStatus%20rpc:com.atproto.sync.getRepo%20rpc:com.atproto.sync.listBlobs%20rpc:com.atproto.sync.getBlob%20rpc:app.bsky.actor.getPreferences%20rpc:com.atproto.identity.requestPlcOperationSignature&
    state=<csrf-token>&
    code_challenge=<S256-challenge>&
    code_challenge_method=S256&
@@ -528,42 +161,337 @@ https://destination.pds.example/.well-known/oauth-client-metadata/migration
    code_verifier=<pkce-verifier>
    ```
 
-   Response: `{ "access_token": "...", "token_type": "DPoP", "scope": "rpc:com.atproto.transfer.exportAccount rpc:com.atproto.transfer.completeTransfer rpc:com.atproto.transfer.getTransferStatus rpc:com.atproto.sync.getBlob", "sub": "did:plc:abc123" }`
+   Response: `{ "access_token": "...", "token_type": "DPoP", "scope": "rpc:com.atproto.server.getServiceAuth rpc:com.atproto.transfer.exportAccount rpc:com.atproto.transfer.completeTransfer rpc:com.atproto.transfer.getTransferStatus rpc:com.atproto.sync.getRepo rpc:com.atproto.sync.listBlobs rpc:com.atproto.sync.getBlob rpc:app.bsky.actor.getPreferences rpc:com.atproto.identity.requestPlcOperationSignature", "sub": "did:plc:abc123" }`
 
-9. **Destination generates** a UUIDv7 transfer ID and creates a deactivated account for the DID.
+9. **Destination generates** a UUIDv7 transfer ID, then creates a deactivated account for the DID in two steps:
+   a. **Destination calls** `GET /xrpc/com.atproto.server.getServiceAuth` on the source PDS (using the OAuth access token), with `aud` = destination PDS DID, `lxm` = `com.atproto.server.createAccount`, and `exp` = 60 seconds. This returns a short-lived service auth JWT scoped to account creation on the destination.
+   b. **Destination calls** `POST /xrpc/com.atproto.server.createAccount` on **itself**, using the service auth JWT as the Bearer token and passing the user's existing DID in the `did` field. The PDS `createAccount` handler accepts a service auth token from the DID's current host to import an existing DID as a deactivated account. The account will be activated after the PLC operation is confirmed (step 15).
 
 10. **Destination calls** `exportAccount` on the source PDS (Section 2.1).
 
-11. **Destination decrypts, verifies, and imports** each frame as it arrives.
+11. **Destination fetches** repo CAR via `getRepo`, imports it; fetches blob CIDs via `listBlobs`, fetches each blob via `getBlob` and stores locally; fetches preferences via `getPreferences` and imports (Section 3).
 
-12. **User enters PLC signature token** (received via email during step 10).
+11a. **Destination calls** `POST /xrpc/com.atproto.identity.requestPlcOperationSignature` on the source PDS (OAuth token). The source PDS sends a PLC verification code to the user, typically via email (though the source PDS MAY deliver the code via an alternative notification channel). The migration UI could display something to the effect: *"Your data has been transferred. A verification code has been sent by your current PDS. Check the notification channel associated with your source account (typically email)."*
+
+12. **User enters PLC verification code** (received in step 11a).
 
 13. **Destination calls** `completeTransfer` on the source PDS (Section 2.2).
 
-14. **Destination submits** the signed PLC operation to the PLC directory.
+14. **Destination submits** the signed PLC operation via `POST /xrpc/com.atproto.identity.submitPlcOperation` on itself, which validates and forwards it to the PLC registry.
 
-15. **Destination activates** the account. Source PDS deactivates and retains data per Section 2.8.
+15. **Destination activates** the account. Source PDS deactivates and retains data per Section 7.
 
 16. **Migration complete.** "Your account has been migrated to destination.pds.example!"
 
-#### 3.3 OAuth Scopes
+### 2. New XRPC Endpoints
 
-This proposal uses the granular `rpc:` scope system defined in [Proposal 0011][proposal-0011]. The destination PDS requests the following four scopes during the OAuth flow:
+The following sections define the new endpoints referenced in the transfer flow above.
 
+#### 2.1 `com.atproto.transfer.exportAccount`
+
+Called by the destination PDS on the source PDS. Notifies the source that a transfer is in progress and returns private account state that cannot be fetched via public endpoints.
+
+**Request:**
+
+```
+POST /xrpc/com.atproto.transfer.exportAccount
+Authorization: DPoP <access-token>
+DPoP: <dpop-proof-jwt>
+Content-Type: application/json
+
+{
+  "did": "did:plc:abc123",
+  "transferId": "019537a1-7e28-7def-8c56-3a8b69e2d471",
+  "capabilities": ["base", "permissioned-data"]
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `did` | string | Yes | The DID of the account to export. |
+| `transferId` | string | Yes | UUIDv7 generated by the destination PDS ([RFC 9562][rfc-9562]). |
+| `capabilities` | string[] | No | Capability tokens the destination supports (Section 7). Defaults to `["base"]` if omitted. |
+
+**Response:**
+
+```json
+{
+  "transferId": "019537a1-7e28-7def-8c56-3a8b69e2d471",
+  "capabilities": ["base"],
+  "privateState": {
+    "email": "user@example.com",
+    "emailConfirmed": true,
+    "inviteCodes": ["code1", "code2"]
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `transferId` | string | Echo of the request `transferId`. |
+| `capabilities` | string[] | The intersection of requested capabilities and those the source supports. The destination MUST NOT use any capability not present in this response. |
+| `privateState` | object | Private account state (Section 5). |
+
+The destination PDS then fetches repo, blobs, and preferences using existing sync endpoints (Section 3). After data transfer is complete, the destination calls `com.atproto.identity.requestPlcOperationSignature` on the source PDS to trigger PLC verification code delivery (Section 1 step 11a).
+
+**Authorization:** Requires `rpc:com.atproto.transfer.exportAccount` scope (Section 8.2). The source PDS MUST verify that the OAuth token's `sub` claim matches the requested `did`.
+
+#### 2.2 `com.atproto.transfer.completeTransfer`
+
+Called by the destination PDS on the source PDS after data import is complete. The source PDS signs a PLC operation transferring identity to the destination.
+
+**Request:**
+
+```
+POST /xrpc/com.atproto.transfer.completeTransfer
+Authorization: DPoP <access-token>
+DPoP: <dpop-proof-jwt>
+Content-Type: application/json
+
+{
+  "did": "did:plc:abc123",
+  "transferId": "019537a1-7e28-7def-8c56-3a8b69e2d471",
+  "plcSignatureToken": "<verification-code>",
+  "newPdsEndpoint": "https://destination.pds.example",
+  "newSigningKey": "did:key:zQ3sh...",
+  "newRotationKeys": ["did:key:zQ3sh..."]
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `did` | string | Yes | The DID of the migrating account. |
+| `transferId` | string | Yes | Must match the `transferId` from `exportAccount`. |
+| `plcSignatureToken` | string | Yes | PLC operation verification code, typically delivered via email. |
+| `newPdsEndpoint` | string | Yes | The destination PDS's service endpoint URL. |
+| `newSigningKey` | string | Yes | The destination PDS's signing key (`did:key` format). |
+| `newRotationKeys` | string[] | Yes | Rotation keys for the updated DID document. MUST include the destination PDS's own rotation key; `submitPlcOperation` on the destination validates this before forwarding to the PLC registry. |
+
+**Response:**
+
+```json
+{
+  "signedPlcOperation": { ... }
+}
+```
+
+The source PDS constructs and signs a PLC operation that updates the DID document to point to the destination PDS, then deactivates the account locally (retaining data per Section 7). The destination PDS submits the signed PLC operation to the PLC directory via its own `com.atproto.identity.submitPlcOperation` endpoint, which validates the operation before forwarding it to the PLC registry.
+
+The source PDS constructs the PLC operation by mapping request fields to the `com.atproto.identity.signPlcOperation` schema as follows:
+
+| `completeTransfer` field | `signPlcOperation` field | Structure |
+|---|---|---|
+| `plcSignatureToken` | `token` | string |
+| `newRotationKeys` | `rotationKeys` | string[] |
+| `newSigningKey` | `verificationMethods` | `{"atproto": "<newSigningKey>"}` |
+| `newPdsEndpoint` | `services` | `{"atproto_pds": {"type": "AtprotoPersonalDataServer", "endpoint": "<newPdsEndpoint>"}}` |
+
+**Authorization:** Requires `rpc:com.atproto.transfer.completeTransfer` scope. The source PDS MUST verify the `plcSignatureToken` and that the `transferId` corresponds to a completed `exportAccount` call.
+
+#### 2.3 `com.atproto.transfer.getTransferStatus` (Optional)
+
+Optional polling endpoint available on either PDS.
+
+**Request:**
+
+```
+GET /xrpc/com.atproto.transfer.getTransferStatus?transferId=019537a1-7e28-7def-8c56-3a8b69e2d471
+Authorization: DPoP <access-token>
+DPoP: <dpop-proof-jwt>
+```
+
+**Response:**
+
+```json
+{
+  "transferId": "019537a1-7e28-7def-8c56-3a8b69e2d471",
+  "did": "did:plc:abc123",
+  "status": "exporting",
+  "progress": {
+    "blobsReceived": 12,
+    "bytesReceived": 104857600
+  }
+}
+```
+
+Status values: `pending`, `exporting`, `importing`, `completing`, `completed`, `failed`.
+
+### 3. Data Transfer via Existing Endpoints
+
+After `exportAccount` returns, the destination PDS fetches all account data using existing ATProto sync endpoints authorized by the OAuth token. No new wire formats are introduced.
+
+> **Important:** The source PDS MUST NOT deactivate the account before `completeTransfer` is processed. The PDS sync endpoints (`getRepo`, `listBlobs`, `getBlob`) return a `RepoDeactivated` error to non-admin callers for deactivated accounts. Deactivation occurs as part of `completeTransfer` processing, after all sync endpoints have been used.
+
+**1. Repository CAR**
+
+```
+GET /xrpc/com.atproto.sync.getRepo?did=<did>
+Authorization: DPoP <access-token>
+```
+
+Response: `application/vnd.ipld.car`
+
+The destination PDS imports the CAR via `POST /xrpc/com.atproto.repo.importRepo` on itself. The destination MUST validate the Merkle tree structure and signed commit.
+
+**2. Blobs**
+
+```
+GET /xrpc/com.atproto.sync.listBlobs?did=<did>[&cursor=<cursor>]
+Authorization: DPoP <access-token>
+```
+
+Paginate through all blob CIDs. For each CID:
+
+```
+GET /xrpc/com.atproto.sync.getBlob?did=<did>&cid=<cid>
+Authorization: DPoP <access-token>
+```
+
+The destination PDS writes each blob directly to its own blob store. 
+<!-- **`uploadBlob` is never called** — the rate limit does not apply. The destination SHOULD verify each blob's CID against its content. After all blobs are fetched, the destination SHOULD call `com.atproto.repo.listMissingBlobs` against its own store to confirm completeness before calling `completeTransfer`. -->
+
+**3. Preferences**
+
+```
+GET /xrpc/app.bsky.actor.getPreferences
+Authorization: DPoP <access-token>
+```
+
+The destination imports preferences via `PUT /xrpc/app.bsky.actor.putPreferences` on itself.
+
+<!-- > **Implementation note:** `app.bsky.actor.getPreferences` is a Bluesky application Lexicon endpoint (`app.bsky.*`). The PDS has a local implementation that reads preferences directly from the actor store (`store.pref.getPreferences`); it does **not** proxy to an AppView by default. Proxying only occurs when the caller sends an explicit AppView service proxy header, which a migrating destination PDS will not send. Preferences fetched via OAuth token with no proxy header are therefore served from the source PDS's local store. On Bluesky's hosted infrastructure, clients that send the proxy header receive preferences from the Bsky AppView — but for the migration use-case this does not apply. Source PDS instances that do not serve `app.bsky.*` at all MUST omit this scope from the token grant and MUST NOT include `preferences` in the `capabilities` response; the destination MUST treat a missing grant for this scope as a non-fatal error and skip preference migration rather than aborting the transfer. -->
+
+### 4. Error Handling
+
+| Error Code | HTTP | Description |
+|---|---|---|
+| `AccountNotFound` | 404 | The requested DID is not hosted on this PDS. |
+| `TransferNotAuthorized` | 403 | OAuth token missing, invalid, or insufficient scope. |
+| `TransferAlreadyActive` | 409 | A transfer is already in progress for this DID. |
+| `TransferNotFound` | 404 | The `transferId` does not match any known transfer. |
+| `InvalidPlcToken` | 400 | The PLC signature token is invalid or expired. |
+| `AccountDeactivated` | 400 | The account has already been deactivated. |
+| `ExportFailed` | 500 | Internal error during data export. |
+
+All error responses use the standard XRPC error format:
+
+```json
+{
+  "error": "TransferNotAuthorized",
+  "message": "OAuth token is missing required rpc: scope for this endpoint"
+}
+```
+
+### 5. Private State Schema
+
+The `privateState` field in the `exportAccount` response carries implementation-specific private data. To enable cross-implementation transfers, this section defines a minimum common schema that all implementations SHOULD support.
+
+**Common fields (RECOMMENDED):**
+
+| Field | Type | Description |
+|---|---|---|
+| `email` | string | Account email address |
+| `emailConfirmed` | boolean | Whether the email has been verified |
+| `inviteCodes` | string[] | Unused invite codes |
+
+**Implementation-specific fields (OPTIONAL):**
+
+| Field | Type | Description |
+|---|---|---|
+| `notificationRouting` | map | Notification delivery configuration |
+
+Implementations SHOULD include all common fields and MAY include additional implementation-specific fields. The destination PDS MUST silently ignore fields it does not recognize. The destination PDS MUST import all recognized common fields.
+
+**Credentials MUST NOT be transferred.** App passwords, API tokens, and OAuth session tokens MUST NOT be included in `privateState`. These credentials are bound to the source PDS's key material and session store; transferring them would either be non-functional on the destination or introduce security risks. Users SHOULD be informed that app passwords will need to be regenerated after migration.
+
+> **Note:** A full private state schema standardization is deferred to future work. This minimum schema enables the most critical data (email address, invite codes) to survive cross-implementation transfers.
+
+### 6. Source PDS Data Retention
+
+After `completeTransfer` is processed, the source PDS MUST deactivate the account (equivalent to calling `com.atproto.server.deactivateAccount`) and SHOULD retain all account data — repository, blobs, and private state — for a minimum of **30 days** before permanent deletion. This retention window serves two purposes:
+
+1. **Rollback recovery.** The PLC directory enforces a 72-hour rollback window during which a higher-priority rotation key can revert a PLC operation. Retaining data ensures the account can be restored on the source PDS if a rollback occurs.
+2. **User error recovery.** Users may realize they migrated to an unintended destination or encounter problems with the destination PDS during the retention window.
+
+When calling `deactivateAccount` internally as part of `completeTransfer` processing, the source PDS SHOULD pass `deleteAfter` set to 30 days from the current time. This schedules automatic deletion and surfaces the deadline in the account record without requiring a separate background job.
+
+The source PDS SHOULD notify the user by email when account data is scheduled for permanent deletion, at least 7 days before deletion occurs. The source PDS MAY allow the user to cancel the deletion and restore the account within the retention window, subject to the PLC operation having been rolled back first.
+
+### 7. Capability Negotiation
+
+The `capabilities` field in `exportAccount` request and response allows the two PDSes to agree on which optional protocol features to use for this transfer, without requiring integer version bumps or out-of-band coordination.
+
+**Negotiation rules:**
+
+1. The destination PDS sends a `capabilities` array listing every capability it supports.
+2. The source PDS responds with the **intersection** of the requested set and its own supported set.
+3. The destination MUST NOT exercise any capability absent from the response `capabilities` array.
+4. Both sides MUST treat unrecognized capability tokens as absent — they MUST NOT error.
+5. Omitting `capabilities` from the request is equivalent to sending `["base"]`.
+
+**Defined capabilities:**
+
+| Token | Defined in | Description |
+|---|---|---|
+| `base` | This proposal | Core transfer: `exportAccount`, `completeTransfer`, `getRepo`, `listBlobs`, `getBlob`. Always implicitly supported. |
+| `preferences` | This proposal | Transfer of `app.bsky.actor.getPreferences` data (see Section 3 implementation note). Source MUST include this only if it can serve the endpoint directly. |
+| `permissioned-data` | Future work | Migration of the user's permissioned repo memberships and any owned space records not fully covered by the base repo CAR (see Future Extensions). Exact semantics depend on the permissioned-data specification. |
+| `resumable` | Future work | Blob-level checkpoint/resume using a persisted `transferId` and cursor (see Future Extensions). |
+
+New capability tokens MUST be defined in a proposal or specification before use. Implementations MUST NOT invent ad-hoc capability tokens.
+
+### 8. Web UI & OAuth
+
+PDS implementations SHOULD serve a web-based migration interface that allows users to initiate transfers without CLI tools. This section defines the OAuth authorization model, required scopes, and pre-migration UI checklist.
+
+#### 8.1 Authorization Model
+
+The destination PDS acts as an OAuth 2.1 client to the source PDS. The user authorizes the destination PDS to export their account data and complete the identity transfer. This follows the same OAuth framework defined in [Proposal 0004][proposal-0004].
+
+The destination PDS publishes OAuth client metadata at:
+
+```
+https://destination.pds.example/.well-known/oauth-client-metadata/migration
+```
+
+```json
+{
+  "client_id": "https://destination.pds.example/.well-known/oauth-client-metadata/migration",
+  "client_name": "PDS Account Migration — destination.pds.example",
+  "grant_types": ["authorization_code"],
+  "response_types": ["code"],
+  "scope": "rpc:com.atproto.server.getServiceAuth rpc:com.atproto.transfer.exportAccount rpc:com.atproto.transfer.completeTransfer rpc:com.atproto.transfer.getTransferStatus rpc:com.atproto.sync.getRepo rpc:com.atproto.sync.listBlobs rpc:com.atproto.sync.getBlob rpc:app.bsky.actor.getPreferences rpc:com.atproto.identity.requestPlcOperationSignature",
+  "redirect_uris": ["https://destination.pds.example/migrate/callback"],
+  "token_endpoint_auth_method": "none",
+  "dpop_bound_access_tokens": true,
+  "application_type": "web",
+  "require_pushed_authorization_requests": true
+}
+```
+
+#### 8.2 OAuth Scopes
+
+This proposal uses the granular `rpc:` scope system defined in [Proposal 0011][proposal-0011]. The destination PDS requests the following scopes during the OAuth flow:
+
+- `rpc:com.atproto.server.getServiceAuth` — obtain a service auth JWT from the source PDS scoped to `com.atproto.server.createAccount` on the destination; required for creating the deactivated account (Section 1 step 9)
 - `rpc:com.atproto.transfer.exportAccount` — call the export endpoint on the source PDS
 - `rpc:com.atproto.transfer.completeTransfer` — call the complete endpoint on the source PDS
 - `rpc:com.atproto.transfer.getTransferStatus` — call the status endpoint on the source PDS
-- `rpc:com.atproto.sync.getBlob` — fetch individual blobs from the source PDS during the active transfer window for post-import blob recovery (Section 2.5)
+- `rpc:com.atproto.sync.getRepo` — fetch the repo CAR from the source PDS
+- `rpc:com.atproto.sync.listBlobs` — enumerate blob CIDs on the source PDS
+- `rpc:com.atproto.sync.getBlob` — fetch individual blobs from the source PDS
+- `rpc:app.bsky.actor.getPreferences` — fetch user preferences from the source PDS; included only when the `preferences` capability is negotiated (Section 7; see also implementation note in Section 3)
+- `rpc:com.atproto.identity.requestPlcOperationSignature` — trigger PLC verification code delivery on the source PDS after data transfer completes (Section 1 step 11a); issued at this point so the token is fresh when `completeTransfer` is called, eliminating TTL expiry risk during long migrations
 
-No `transition:*` scope is defined by this proposal. Implementations MUST support `rpc:` scope validation to implement this proposal. Source PDS instances that do not yet support `rpc:` scope validation cannot serve as migration sources.
+No `transition:*` scope is defined by this proposal. Implementations MUST support `rpc:` scope validation to implement this proposal. Source PDS instances that do not yet support `rpc:` scope validation cannot serve as migration sources. Source PDS instances that do not serve `app.bsky.*` endpoints MUST omit `rpc:app.bsky.actor.getPreferences` from the token grant and MUST NOT include `preferences` in the `capabilities` response; destination PDS instances MUST treat a missing grant for this scope as a non-fatal error and skip preference migration.
 
-#### 3.4 Pre-Migration Checklist
+#### 8.3 Pre-Migration Checklist
 
 The migration web UI SHOULD present a pre-migration checklist before proceeding:
 
 - [ ] **Rotation key check**: Verify the user's DID document rotation key configuration. Warn if the user has no self-controlled rotation key, or if the PDS's rotation key has higher priority.
 - [ ] **Backup recommendation**: Strongly recommend the user create a local backup via `com.atproto.sync.getRepo` before proceeding. The UI SHOULD offer a one-click backup download.
-- [ ] **Destination verification**: Display the destination PDS hostname, its DID, and HPKE encryption support.
+- [ ] **Destination verification**: Display the destination PDS hostname and its DID.
 - [ ] **Private state warning**: If applicable, warn that email settings, app passwords, and notification preferences may need manual reconfiguration.
 - [ ] **Social graph reassurance**: Explain that followers, likes, blocks, and mutes are stored on other users' PDS instances and linked by DID, not PDS hostname.
 - [ ] **72-hour monitoring period**: Explain the PLC rollback window and that the destination PDS will monitor for unauthorized rollback attempts.
@@ -577,22 +505,6 @@ The transfer protocol assumes:
 - Both PDS instances are honest-but-curious: they will follow the protocol but may attempt to learn information beyond what is necessary.
 - The network between PDSes is untrusted (despite TLS).
 - The user's device is trusted for authorization decisions but not required as a data intermediary.
-- TLS-terminating intermediaries (CDNs, reverse proxies, load balancers) are untrusted for data confidentiality — the primary justification for application-layer HPKE encryption.
-
-### Forward Secrecy
-
-HPKE's base mode provides **sender forward secrecy**: each transfer generates a fresh ephemeral keypair, discarded after the HPKE context is established. However, base mode does **not** provide full forward secrecy with respect to the receiver's long-term key. An attacker who compromises the receiver's long-term private key **and** has recorded the encapsulated key and ciphertext can decrypt past transfers.
-
-This is an accepted trade-off. Full forward secrecy would require an interactive key exchange, adding round trips and complexity. The threat is mitigated by regular key rotation (Section 1.4), the requirement to record ciphertext at transfer time, and TLS 1.3 transport-layer forward secrecy.
-
-### Replay Protection
-
-The AAD binding of `did`, `transfer_id`, `frame_number`, and `content_type` prevents:
-
-- **Cross-session replay**: Frames from one transfer cannot be replayed into another.
-- **Cross-account replay**: Frames for one DID cannot be substituted for another.
-- **Reordering**: Frame sequence is authenticated.
-- **Type confusion**: A repo frame cannot be substituted for a blob frame.
 
 ### Denial of Service
 
@@ -611,7 +523,7 @@ The protocol above assumes cooperative PDS instances. A hostile source PDS may o
 
 **Mitigations:**
 
-- **Pre-positioned recovery keys.** Users SHOULD hold a rotation key at index 0 before migrating. The pre-migration checklist (Section 3.4) verifies this.
+- **Pre-positioned recovery keys.** Users SHOULD hold a rotation key at index 0 before migrating. The pre-migration checklist (Section 8.3) verifies this.
 - **Post-migration PLC monitoring.** The destination PDS SHOULD monitor the PLC directory for the migrated DID for 72 hours. If a rollback is detected, alert the user and provide tools to re-submit a PLC operation with their index-0 key.
 - **Independent backups.** Users SHOULD maintain backups before migrating. The pre-migration checklist includes a backup recommendation.
 
@@ -625,8 +537,8 @@ This proposal is fully additive. No existing XRPC endpoints are modified. PDS in
 
 ### Rollout Strategy
 
-1. **Phase 1 — Sending support**: PDS implementations add `exportAccount` and `completeTransfer`. Existing PDSes can serve as migration sources.
-2. **Phase 2 — Receiving support**: PDS implementations add `/.well-known/atproto-transfer`, migration web UI, and the OAuth client flow.
+1. **Phase 1 — Sending support**: PDS implementations add `exportAccount` and `completeTransfer`, and ensure `getRepo`, `listBlobs`, and `getBlob` are accessible to OAuth-authorized destinations. Existing PDSes can serve as migration sources.
+2. **Phase 2 — Receiving support**: PDS implementations add migration web UI and the OAuth client flow.
 3. **Phase 3 — Full PDS-to-PDS**: Both sides support the protocol. The migration web UI becomes the primary migration path.
 
 Client-orchestrated migration remains available throughout all phases and indefinitely after.
@@ -635,23 +547,22 @@ Client-orchestrated migration remains available throughout all phases and indefi
 
 | PDS Role | Required Endpoints | Optional |
 |---|---|---|
-| Source (sending) | `exportAccount`, `completeTransfer` | `getTransferStatus` |
-| Destination (receiving) | `/.well-known/atproto-transfer`, migration web UI, OAuth client | `getTransferStatus` |
+| Source (sending) | `exportAccount`, `completeTransfer`, `getRepo`, `listBlobs`, `getBlob` (OAuth-authorized) | `getTransferStatus` |
+| Destination (receiving) | Migration web UI, OAuth client | `getTransferStatus` |
 
 ### Interaction with Existing Proposals
 
 - **Proposal 0004 (OAuth)**: This proposal builds on the OAuth 2.1 framework. The destination PDS is an OAuth client to the source PDS.
-- **Proposal 0010 (DID Service References)**: PDS service DIDs referenced in the well-known endpoint.
+- **Proposal 0013 (DID Service References)**: PDS service DIDs referenced during identity verification.
 - **Proposal 0011 (Auth Scopes)**: This proposal uses Proposal 0011's granular `rpc:` scope system directly, with no `transition:*` scope defined.
 
 ## Future Extensions
 
-The following are explicitly deferred to future work:
+The following are explicitly deferred to future work. Each item identifies the capability token (Section 7) that will gate it once specified.
 
-- **Parallel frame upload**: Per-frame key derivation enables a future version where frames are uploaded via separate HTTP requests for parallelism.
-- **Resumable transfers**: A future version could add frame acknowledgment and resumption from the last confirmed frame.
-- **Post-quantum algorithms**: The algorithm negotiation framework supports future HPKE suites with post-quantum KEMs.
-- **Cross-implementation private state schema**: Standardized private state fields beyond the minimum in Section 2.9.
+- **Resumable transfers** (`resumable`): The destination PDS can persist `transferId` and resume from a known blob CID on interruption, since `listBlobs` is paginated and `getBlob` is idempotent. Blob-level checkpointing is naturally supported without any protocol changes to the existing sync endpoints.
+- **Permissioned data migration** (`permissioned-data`): In the partitioned permission-space model, a user's permissioned repo records live on their own PDS and are already transferred by the `base` capability's `getRepo` call. What `permissioned-data` must additionally handle is: (1) owned space records whose member lists reference other PDSes that need to be notified of the owner's new location, and (2) any private space state not carried in the public repo CAR. This depends on the permissioned-data specification (see Daniel Holmgren's [Permissioned Data][permissioned-data] design work) being finalized. When specified, this capability will likely require extensions to `exportAccount` and/or new endpoints to enumerate owned spaces and coordinate membership updates. Until then, implementations SHOULD warn users that owned space membership lists may require manual coordination after migration; their own permissioned repo records will transfer with the standard repository.
+- **Cross-implementation private state schema**: Standardized private state fields beyond the minimum in Section 5.
 
 ## Minimum Implementation Profile
 
@@ -659,89 +570,21 @@ A PDS implementing this protocol for the first time need not support every featu
 
 **Sending-only (source PDS):**
 
-1. Implement `exportAccount` — stream repo CAR and blobpacks as encrypted frames.
+1. Implement `exportAccount` — return private state JSON.
 2. Implement `completeTransfer` — sign and return a PLC operation.
-3. Support HPKE-3 (AES-128-GCM) encryption.
-4. Support `application/vnd.ipld.car` and `application/vnd.atproto.transfer.blobpack` content types.
-5. Support for preferences and private state is REQUIRED.
+3. Existing endpoints `getRepo`, `listBlobs`, `getBlob` must be accessible to the OAuth-authorized destination.
+4. `com.atproto.identity.requestPlcOperationSignature` must be accessible to the OAuth-authorized destination (called after data transfer, before `completeTransfer`).
 
 **Receiving-only (destination PDS):**
 
-1. Serve `/.well-known/atproto-transfer` with at least one HPKE key.
-2. Implement the OAuth client flow and migration web UI.
-3. Decrypt and import repo CAR and blobpack frames.
-4. Submit the signed PLC operation to the PLC directory.
-5. Support for preferences and private state import is REQUIRED.
-
-## Addendum: Blobpack Wire Format
-
-The `application/vnd.atproto.transfer.blobpack` content type uses a custom binary format for packing multiple blobs into a single encrypted frame. All multi-byte integers are unsigned and encoded in network byte order (big-endian).
-
-### Wire Format
-
-```
-[4 bytes: magic number 0x41545042 ("ATPB")]
-[1 byte:  version (0x01)]
---- per entry (repeated until end of plaintext) ---
-[4 bytes: CID length (uint32)]
-[N bytes: CID (binary-encoded CID: varint version, varint codec, multihash)]
-[8 bytes: blob length (uint64)]
-[M bytes: blob data]
---- end per entry ---
-```
-
-### Header Fields
-
-The **magic number** (`0x41545042`, ASCII "ATPB") allows receivers to detect format mismatches or corrupted streams early. This value is distinct from CAR v1 headers (which begin with a DAG-CBOR length varint) and CAR v2 pragmas (`0x0aa16776`).
-
-The **version** byte identifies the blobpack wire format version. The initial version is `0x01`. Receivers MUST reject blobpacks with an unrecognized version.
-
-### Entry Parsing
-
-Entries are self-delimiting: each entry's total size is `4 + CID_length + 8 + blob_length` bytes. The receiver reads entries sequentially until the decrypted plaintext is exhausted. There is no entry count field; the stream boundary is defined by the AEAD ciphertext envelope.
-
-If the plaintext does not end exactly at an entry boundary, the receiver MUST reject the frame.
-
-### CID Requirements
-
-CIDs in blobpack entries MUST be CID version 1 with the `raw` codec (multicodec `0x55`) and SHA-256 multihash (multicodec `0x12`, 32-byte digest). This matches ATProto's exclusive use of CIDv1/raw/SHA-256 for blob references. Receivers MUST reject entries with any other CID version, codec, or hash algorithm.
-
-The **CID length** field is uint32. In practice, conforming CIDs are exactly 36 bytes. Receivers SHOULD reject entries where `CID_length` exceeds 512 bytes as a defense against malformed streams.
-
-### Blob Length
-
-The **blob length** field is a uint64 to accommodate large media blobs (e.g., video files exceeding 4 GB). Receivers SHOULD reject entries where `blob_length` exceeds the receiver's configured per-blob size limit. A `blob_length` of 0 is syntactically valid but receivers MAY reject zero-length blobs per policy.
-
-### Integrity Verification
-
-Receivers MUST verify each blob's CID incrementally: compute the SHA-256 hash of the blob data, construct the expected CIDv1/raw/SHA-256, and compare it to the declared CID. If any entry fails verification, the receiver MUST reject the entire frame.
-
-### Duplicate CIDs
-
-If the same CID appears multiple times within a single blobpack, the receiver MUST verify each occurrence independently but MAY store only the first successfully verified copy.
-
-### Design Rationale: Blobpack vs. CAR v2
-
-The blobpack format is a purpose-built streaming format for blob transfer. CAR v2 was considered but rejected:
-
-1. **Access pattern mismatch.** CAR v2 is designed for random-access reads; blob transfer is write-once streaming ingest.
-2. **No DAG structure.** Blobs have no internal IPLD structure. CAR v2 would require a synthetic root node.
-3. **Implementation simplicity.** Blobpack requires ~50 lines of code. CAR v2 requires a full parser plus index handling.
-4. **Library availability.** CAR v2 support varies across ecosystems.
-
-CAR v1 remains the correct format for repository data where DAG structure and Merkle root verification are essential.
-
-### Content Type: `application/vnd.atproto.preferences+json`
-
-A JSON document conforming to the `app.bsky.actor.defs#preferences` lexicon schema. Contains the user's application preferences as a JSON array of preference objects.
-
-### Content Type: `application/vnd.atproto.transfer.account-state+cbor`
-
-A CBOR-encoded map containing private account state fields. See Section 2.9 for the minimum common schema. The `+cbor` structured suffix is registered with IANA ([RFC 8949 Section 9.5][rfc-8949]).
+1. Implement the OAuth client flow and migration web UI.
+2. Call `exportAccount`, then pull data via existing sync endpoints (`getRepo`, `listBlobs`, `getBlob`, `getPreferences`).
+3. Import repo CAR via `importRepo`, store blobs directly to blob store.
+4. Call `completeTransfer`, submit PLC operation.
 
 ## Acknowledgments
 
-This proposal draws on community contributions across cryptography, data formats, implementation feasibility, OAuth design, and user experience. Special thanks to the working group participants.
+This proposal draws on community contributions across data formats, implementation feasibility, OAuth design, and user experience. Special thanks to the working group participants.
 
 Prior art and community tools that informed this design:
 
@@ -754,14 +597,10 @@ Prior art and community tools that informed this design:
 
 ### Normative References
 
-- [RFC 9180][rfc-9180] — Hybrid Public Key Encryption (HPKE)
-- [RFC 5869][rfc-5869] — HMAC-based Extract-and-Expand Key Derivation Function (HKDF)
 - [RFC 9562][rfc-9562] — Universally Unique Identifiers (UUIDs)
-- [draft-ietf-jose-hpke-encrypt][jose-hpke] — Use of HPKE with JOSE
-- [RFC 8615][rfc-8615] — Well-Known Uniform Resource Identifiers (URIs)
 - [RFC 8446][rfc-8446] — The Transport Layer Security (TLS) Protocol Version 1.3
 - [RFC 9325][rfc-9325] — Recommendations for Secure Use of TLS and DTLS
-- [ATProto DID Specification][atproto-did] — DID method, rotation key semantics
+- [ATProto DID Specification][atproto-did] — DID method, DID document structure
 - [ATProto Repository Specification][atproto-repo] — Repository structure, CAR format
 - [ATProto HTTP API (XRPC) Specification][atproto-xrpc] — XRPC endpoint conventions
 
@@ -769,39 +608,32 @@ Prior art and community tools that informed this design:
 
 - [ATProto OAuth Specification][oauth-spec] — Pushed Authorization Requests (PAR) requirement
 - [Proposal 0004: OAuth][proposal-0004] — OAuth 2.1 framework for ATProto
-- [Proposal 0010: DID Service References][proposal-0010] — DID document service references
+- [Proposal 0013: DID Service References][proposal-0013] — DID document service references
 - [Proposal 0011: Auth Scopes][proposal-0011] — Permission scopes for ATProto OAuth
 - [PDS Moover][pds-moover] — Community migration tool by Bailey Townsend
 - [`goat` CLI][goat-cli] — Official ATProto CLI with migration support
 - [David Buchanan, "Adversarial ATProto PDS Migration"][buchanan-adversarial]
 - [Bryan Newbold, "Identity Recovery Keys"][newbold-recovery-keys]
+- [Daniel Holmgren, "Permissioned Data"][permissioned-data] — Design work on permissioned data spaces; informs the `permissioned-data` capability
 - [PR #4202: uploadBlob rate limit adjustment][pr-4202]
-- [RFC 9540][rfc-9540] — Oblivious HTTP (HPKE deployment precedent)
-- [RFC 9420][rfc-9420] — Messaging Layer Security (HPKE deployment precedent)
-- [RFC 8949][rfc-8949] — Concise Binary Object Representation (CBOR)
 
 <!-- Reference Links -->
-[rfc-9180]: https://datatracker.ietf.org/doc/rfc9180/
-[rfc-5869]: https://datatracker.ietf.org/doc/rfc5869/
 [rfc-9562]: https://datatracker.ietf.org/doc/rfc9562/
-[rfc-8615]: https://www.rfc-editor.org/rfc/rfc8615.html
 [rfc-8446]: https://datatracker.ietf.org/doc/rfc8446/
 [rfc-9325]: https://datatracker.ietf.org/doc/rfc9325/
-[rfc-9540]: https://datatracker.ietf.org/doc/rfc9540/
-[rfc-9420]: https://datatracker.ietf.org/doc/rfc9420/
-[rfc-8949]: https://datatracker.ietf.org/doc/rfc8949/
-[jose-hpke]: https://datatracker.ietf.org/doc/draft-ietf-jose-hpke-encrypt/
 [atproto-ethos]: https://atproto.com/articles/atproto-ethos
 [atproto-did]: https://atproto.com/specs/did
 [atproto-repo]: https://atproto.com/specs/repository
 [atproto-xrpc]: https://atproto.com/specs/xrpc
 [oauth-spec]: https://atproto.com/specs/oauth
 [proposal-0004]: https://github.com/bluesky-social/proposals/tree/main/0004-oauth
-[proposal-0010]: https://github.com/bluesky-social/proposals/tree/main/0010-did-service-references
+[proposal-0013]: https://github.com/bluesky-social/proposals/tree/main/0013-service-auth-refs
 [proposal-0011]: https://github.com/bluesky-social/proposals/tree/main/0011-auth-scopes
 [pds-moover]: https://pdsmoover.com/
 [goat-cli]: https://github.com/bluesky-social/goat
-[buchanan-adversarial]: https://bsky.bad-example.com/adversarial-atproto-pds-migration
-[newbold-recovery-keys]: https://whtwnd.com/bnewbold.net/entries/Identity%20Recovery%20Keys
+[buchanan-adversarial]: https://www.da.vidbuchanan.co.uk/blog/adversarial-pds-migration.html
+[newbold-migration]: https://whtwnd.com/bnewbold.net/entries/Migrating%20PDS%20Account%20with%20%60goat%60
+[newbold-recovery-keys]: https://whtwnd.com/bnewbold.net/3lj7jmt2ct72r
+[permissioned-data]: https://dholms.leaflet.pub/3mhj6bcqats2o
 [pr-4202]: https://github.com/bluesky-social/atproto/pull/4202
 [uploadblob-rate-limit]: https://github.com/bluesky-social/atproto/blob/main/packages/pds/src/api/com/atproto/repo/uploadBlob.ts
