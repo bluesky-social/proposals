@@ -419,7 +419,7 @@ The source PDS SHOULD notify the user by email when account data is scheduled fo
 
 ### 7. Capability Negotiation
 
-The `capabilities` field in `exportAccount` request and response allows the two PDSes to agree on which optional protocol features to use for this transfer, without requiring integer version bumps or out-of-band coordination.
+The `capabilities` field in `exportAccount` reqduest and response allows the two PDSes to agree on which optional protocol features to use for this transfer, without requiring integer version bumps or out-of-band coordination.
 
 **Negotiation rules:**
 
@@ -437,6 +437,7 @@ The `capabilities` field in `exportAccount` request and response allows the two 
 | `preferences` | This proposal | Transfer of `app.bsky.actor.getPreferences` data (see Section 3 implementation note). Source MUST include this only if it can serve the endpoint directly. |
 | `permissioned-data` | Future work | Migration of the user's permissioned repo memberships and any owned space records not fully covered by the base repo CAR (see Future Extensions). Exact semantics depend on the permissioned-data specification. |
 | `resumable` | Future work | Blob-level checkpoint/resume using a persisted `transferId` and cursor (see Future Extensions). |
+| `stratos` | Future work | Migration of [stratos][stratos] data. |
 
 New capability tokens MUST be defined in a proposal or specification before use. Implementations MUST NOT invent ad-hoc capability tokens.
 
@@ -637,3 +638,4 @@ Prior art and community tools that informed this design:
 [permissioned-data]: https://dholms.leaflet.pub/3mhj6bcqats2o
 [pr-4202]: https://github.com/bluesky-social/atproto/pull/4202
 [uploadblob-rate-limit]: https://github.com/bluesky-social/atproto/blob/main/packages/pds/src/api/com/atproto/repo/uploadBlob.ts
+[stratos]: https://stratos.zone
