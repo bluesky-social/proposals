@@ -29,3 +29,5 @@ Please open issues and PRs to discuss the content.
 ## [0012: Infrastructure Abuse Notices](./0012-infra-abuse-notices/)
 
 ## [0013: Consistent References to DID Services](./0013-service-auth-refs/)
+
+## [0014: Service Auth Audience Revised](./0014-service-auth-revised/)
