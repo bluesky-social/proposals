@@ -16,8 +16,7 @@ In both cases, support for bare DIDs will not be immediately removed, but it wil
 
 ## Other Changes
 
-
-The `iss` field in service auth tokens currently allows an optional fragment with a service name. This is not widely used in practice, though it has been used to authenticate labeling services to PDS instances (when both are operated by the same party). Support for the fragment syntax in the `iss` field will be removed: only bare DIDs will be allowed. The `kid` JWT header field will be allowed to identify a signing key ("verification method") from the issuer DID document, with a default value of `atproto`. Note that this is a switch in semantics from identifying the issuing *service* (with a table mapping service types to key identifiers), to identifying the *signing key* itself. Receiving services should *not* 
+The `iss` field in service auth tokens currently allows an optional fragment with a service name. This is not widely used in practice, though it has been used to authenticate labeling services to PDS instances (when both are operated by the same party). Support for the fragment syntax in the `iss` field will be removed: only bare DIDs will be allowed. The `kid` JWT header field will be allowed to identify a signing key ("verification method") from the issuer DID document (including the `#` character), with a default value of `#atproto`. Note that this is a switch in semantics from identifying the issuing *service* (with a table mapping service types to key identifiers), to identifying the *signing key* itself. Receiving services should *not* accept arbitrary key types (`kid` values): they should only accept key types relevant to their use-case. A safe default for SDKs and services is to only accept `#atproto`.
 
 The `lxm` field in auth JWTs will become required for XRPC endpoint calls. It is currently described as optional in the specs.
 
