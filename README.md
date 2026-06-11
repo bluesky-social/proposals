@@ -31,3 +31,5 @@ Please open issues and PRs to discuss the content.
 ## [0013: Consistent References to DID Services](./0013-service-auth-refs/)
 
 ## [0014: Service Auth Audience Revised](./0014-service-auth-revised/)
+
+## [0015: JSON Event Stream Encoding](./0015-json-subscriptions/)
