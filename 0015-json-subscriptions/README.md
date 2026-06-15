@@ -23,12 +23,12 @@ Keeping `xrpc.v0.cbor` as the unchanged default means the existing `com.atproto.
 
 ## Framing (`v1`)
 
-In `v1`, each WebSocket frame contains exactly one object. The object is discriminated by its `$type` field. There are two specified frame types: `event` and `error`.
+In `v1`, each WebSocket frame contains exactly one object. The object is discriminated by its `$type` field. There are two specified frame types: `message` and `error`.
 
-An **event** frame wraps a Lexicon message in an envelope:
+An **message** frame wraps a Lexicon message in an envelope:
 
 ```json
-{"$type":"event","payload":{"$type":"com.atproto.sync.subscribeRepos#commit","seq":42,"repo":"did:plc:abc","rev":"3kx2"}}
+{"$type":"message","payload":{"$type":"com.atproto.sync.subscribeRepos#commit","seq":42,"repo":"did:plc:abc","rev":"3kx2"}}
 ```
 
 An **error** frame carries an error type and optional description:
@@ -41,7 +41,7 @@ Error frame fields match `v0`: `error` is a required string (an error type name,
 
 The CBOR encoding (`xrpc.v1.cbor`) uses the identical structure, just serialized as a single DRISL-CBOR object per frame rather than JSON text.
 
-A key properties here are that messages are a **single object** and **lex parser compatible**. Unlike `v0`, there is no separate header object carrying `op` and `t`. The `payload` object is exactly the Lexicon message, with the full `<nsid>#<fragment>` value in its `$type` field, so it can be handed directly to an existing Lexicon decoder with no unwrapping or transformation. The `event` and `error` discriminators are not NSIDs. They behave like other compound types such as `$type: "blob"` or `$type: "bytes"` in the data model. Existing tooling, such as lex SDKs and data parsers, work on these frames much more nicely.
+A key properties here are that messages are a **single object** and **lex parser compatible**. Unlike `v0`, there is no separate header object carrying `op` and `t`. The `payload` object is exactly the Lexicon message, with the full `<nsid>#<fragment>` value in its `$type` field, so it can be handed directly to an existing Lexicon decoder with no unwrapping or transformation. The `message` and `error` discriminators are not NSIDs. They behave like other compound types such as `$type: "blob"` or `$type: "bytes"` in the data model. Existing tooling, such as lex SDKs and data parsers, work on these frames much more nicely.
 
 
 ## Negotiation
