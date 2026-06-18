@@ -7,11 +7,11 @@ Atproto event streams (subscriptions) are currently encoded as binary [DRISL-CBO
 
 This proposal introduces a JSON encoding for atproto subscriptions, so that consumers can read a stream with `JSON.parse` over standard text WebSocket frames. The immediate motivation is Jetstream v2, but the encoding is generic and may apply to any `subscription` Lexicon. 
 
-Along the way, we formalize a versioning scheme for the wire transport and define a cleaner frame structure in which every message is a single, self-describing object. The JSON and CBOR encodings of this new structure are defined symmetrically, but only the JSON encoding is being shipped in the near term.
+Along the way, we formalize a versioning scheme for the wire subprotocol and define a cleaner frame structure in which every message is a single, self-describing object. The JSON and CBOR encodings of this new structure are defined symmetrically, but only the JSON encoding is being shipped in the near term.
 
-## Versioned Transports
+## Versioned Subprotocols
 
-We give the wire transport an explicit version, negotiated at connection time. There are two versions:
+We give the wire subsprotocol an explicit version, negotiated at connection time. There are two versions:
 
 - **`xrpc.v0.cbor`** — the current protocol: each WebSocket frame contains two concatenated DRISL-CBOR objects, a header (`op`, `t`) followed by a payload. This is the **legacy default**: when no version is negotiated, this is what a connection gets. It is unchanged by this proposal.
 - **`xrpc.v1.json`** and **`xrpc.v1.cbor`** — the new framing described below: one message per frame, each a single self-describing object. The `v1` framing is defined identically for both encodings; they differ only in how that single object is serialized.
@@ -50,20 +50,20 @@ The encoding is negotiated at connection time using the standard `Sec-WebSocket-
 
 - Client offers `xrpc.v1.json`, `xrpc.v1.cbor`, in preference order.
 - The server selects one it supports and echoes it in its `Sec-WebSocket-Protocol` response header.
-- If the client offers nothing recognized (or no `Sec-WebSocket-Protocol` header at all), the connection falls back to the `subprotocol` listed in the subscriptions lexicon document. If no subprotocol is lsted, subprotocol is assumed to be the legacy **`xrpc.v0.cbor`** transport. This preserves the behavior of all existing clients.
+- If the client offers nothing recognized (or no `Sec-WebSocket-Protocol` header at all), the connection falls back to the `subprotocol` listed in the subscriptions lexicon document. If no subprotocol is lsted, subprotocol is assumed to be **`xrpc.v0.cbor`**. This preserves the behavior of all existing clients.
 
 ### `subprotocol` field
 
-`subscription` Lexicons gain an optional `subprotocol` field, which declares the default transport for a stream when a client does not negotiate one. The value is a single subprotocol token, such as `xrpc.v1.json` or `xrpc.v0.cbor`.
+`subscription` Lexicons gain an optional `subprotocol` field, which declares the default subprotocol for a stream when a client does not negotiate one. The value is a single subprotocol token, such as `xrpc.v1.json` or `xrpc.v0.cbor`.
 
 This lets a stream that is defined from the outset to be JSON-native (such as Jetstream v2) declare `xrpc.v1.json` as its default, so that an unnegotiated connection receives JSON rather than legacy CBOR. When the field is absent, the default is `xrpc.v0.cbor`, preserving the behavior of every existing subscription.
 
-The field only sets the default. Clients can still negotiate any encoding the server supports via `Sec-WebSocket-Protocol`, regardless of what the Lexicon declares.
+Servers must support at minimum the subprotocol indicated by the Lexicon, including when it takes the default value of `xrpc.v0.cbor`. However, the field only sets the default. Clients may still negotiate any subprotocol the server supports via `Sec-WebSocket-Protocol`, regardless of what the Lexicon declares.
 
 
 ## Practical Notes
 
-**Compression.** The JSON encoding, with its repeated `$type` strings and textual representation, is larger on the wire than the equivalent CBOR. We recommend (but do not mandate) that servers support the standard `permessage-deflate` WebSocket compression extension to close most of this gap. Compression is negotiated separately from the subprotocol, via the standard WebSocket extension mechanism. 
+**Compression.** The JSON encoding is larger on the wire than the equivalent CBOR. We recommend (but do not mandate) the standard [`permessage-deflate`](https://datatracker.ietf.org/doc/html/rfc7692) WebSocket compression extension to close most of this gap. The savings depend on *context takeover* (on by default), since the repeated `$type` and field names compress against prior frames but not within a single small frame. 
 
 
 ## Rollout Plan
