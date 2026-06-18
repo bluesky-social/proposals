@@ -1,6 +1,8 @@
 0015: JSON Event Stream Encoding
 ===============================
 
+Join the [Github discussion](https://github.com/bluesky-social/atproto/discussions/5115)
+
 *This is a draft proposal, not the final specification. Some of the details, terminology, and behaviors might change.*
 
 Atproto event streams (subscriptions) are currently encoded as binary [DRISL-CBOR](https://dasl.ing/drisl.html) over WebSockets, with each frame holding two concatenated CBOR objects (a header and a payload). This works well for many usecases, but it can be awkward for browsers and casual consumers who need to pull in a CBOR decoder, and then deal with the two-object framing before they can touch the data.
