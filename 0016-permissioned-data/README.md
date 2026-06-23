@@ -439,7 +439,7 @@ A scope may request wild card access on both `did` and `type`. This is a very br
 
 ### Permission sets
 
-Space permissions can also be bundled, unlike with more user-friendly verbiage, into a [permission set](https://atproto.com/specs/permission).
+Space permissions can also be bundled, usually with more user-friendly verbiage, into a [permission set](https://atproto.com/specs/permission).
 
 ```json
 {
