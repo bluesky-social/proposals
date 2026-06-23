@@ -34,4 +34,4 @@ Please open issues and PRs to discuss the content.
 
 ## [0015: JSON Event Stream Encoding](./0015-json-subscriptions/)
 
-## [0016: Permissioned Data](./0015-permissioned-data/)
+## [0016: Permissioned Data](./0016-permissioned-data/)
