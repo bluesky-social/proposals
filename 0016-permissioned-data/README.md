@@ -84,7 +84,7 @@ Record: ats://{spaceDid}/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
 
 A space's **authority** is the DID at the root of the space and the issuer of its [credentials](#access-control). It may be a user's own DID as for personal data such as bookmarks or mutes. Or it may be a dedicated DID which lets a shared space transfer between users independently of any individual account.
 
-The authority DID MUST expose two entries in its DID document:
+The authority MUST expose two entries in its DID document:
 
 - a **verification method** with id `#atproto_space`: the public key used to verify the space's credentials
 - a **service** entry with id `#atproto_space_host`: the endpoint of the space host
@@ -99,7 +99,7 @@ The type is also the **OAuth consent boundary**. Access is granted to a user by 
 
 ### Space type declarations
 
-A space type NSID resolves to a **space declaration**: a Lexicon definition with `"type": "space"`.
+A space type NSID resolves to a **space type declaration**: a Lexicon definition with `"type": "space"`.
 
 ```json
 {
@@ -142,7 +142,7 @@ Reading a space is gated by a **space credential** issued by the space authority
 
 The delegation token is always required. The client attestation is required only when a space gates on app identity. An application obtains a credential by getting a delegation token from a user's PDS, then presenting that token (together with its client attestation, if needed) to the space authority in exchange for a credential. The authority decides whether to issue the credential. The protocol does not define the decision procedure (the policies of the PDS's space-management implementation are described under [`simplespace`](#required-pds-space-management-simplespace)).
 
-Some spaces do not require a client attestation. This by querying the space configuration, or by simply making a request for a credential without an attestation and seeing whether an error is returned.
+Some spaces do not require a client attestation. This can be detected by querying the space configuration, or by simply making a request for a credential without an attestation and seeing whether an error is returned.
 
 ### Delegation token
 
@@ -163,10 +163,10 @@ Example JWT header and payload (before base64url encoding and signing):
 }
 {
   "iss": "did:example:user_did", // User DID
-  "aud": "did:example:space_did#atproto_space_host", // Space host (service fragment of the authority DID)
   "sub": "ats://did:example:space_did/com.example.space_type/space_key", // Space being requested
+  "aud": "did:example:space_did#atproto_space_host", // Space host (service fragment of the authority DID)
   "iat": 1738368000, // Issued-at (unix seconds)
-  "exp": 1738368300, // iat + 60 (60 seconds)
+  "exp": 1738368060, // iat + 60 (60 seconds)
   "jti": "f47ac10b58cc4372a5670e02b2c3d479" // random nonce
 }
 ```
@@ -255,7 +255,7 @@ An application serving several users of a space does not necessarily need to mai
 
 ## Permissioned repos
 
-A **permissioned repo** is one user's set of records within one space, stored on that user's own PDS. A user has one permissioned repo per space it participates in. Abstractly, a permissioned repo offers a similar interface to a public [atproto repository](https://atproto.com/specs/repository): a key/value mapping where keys are path names (a collection NSID and an rkey) and values are CBOR-encoded records. PDSes expose a CRUD interface for interacting with a user's permissioned repos.
+A **permissioned repo** is one accounts's set of records within one space, generally stored on that user's own PDS. A user has one permissioned repo per space it participates in. Abstractly, a permissioned repo offers a similar interface to a public [atproto repository](https://atproto.com/specs/repository): a key/value mapping where keys are path names (a collection NSID and an rkey) and values are CBOR-encoded records. PDSes expose a CRUD interface for interacting with a user's permissioned repos.
 
 Each permissioned repo is summarized by a **commit**. A commit is a short, signed digest that allows a syncer to check whether its copy of a repo matches the source without resyncing it in its entirety.
 
@@ -267,7 +267,7 @@ The construction is [LtHash][LTHASH], a homomorphic hash built on a lattice prob
 
 The state is a fixed 2048-byte buffer, interpreted as 1024 little-endian unsigned 16-bit lanes.
 
-Each record maps to one element, the UTF-8 bytes of `{collection}/{rkey}/{record_cid}`. As with the public repository, the components are currently limited to ASCII, so the encoding (though specified as UTF-8) is a no-op.
+Each record in the repo maps to one element, the UTF-8 bytes of `{collection}/{rkey}/{record_cid}`. As with the public repository, the components are currently limited to ASCII, so the encoding (though specified as UTF-8) is a no-op.
 
 To **add** an element:
 
@@ -344,7 +344,7 @@ Blobs referenced by permissioned records are stored on the authoring repo's host
 
 Write notifications inform syncers that a repo has advanced, so they can pull promptly instead of continuously polling for updates. A notification contains no record data, and states only that a given repo in a given space has reached a new revision.
 
-A syncer subscribes to notifications by calling `com.atproto.space.registerNotify`. When called on a space host, this method subscribes to writes for all repos in a space. It can also be called on particular repo hosts to receive notifications for specific repos. `registerNotify` is authenticated with a space credential. The service that was registered against should return the expiration time for the registration which may be longer than the expiration window of the space credential.
+A syncer subscribes to notifications by calling `com.atproto.space.registerNotify`. When called on a space host, this method subscribes to writes for all repos in a space. Generally, syncers should subscribe to the space host for all write notifications from the space. However, it can also be called on particular repo hosts to receive notifications for specific repos. `registerNotify` is authenticated with a space credential. The service that was registered against should return the expiration time for the registration which may be longer than the expiration window of the space credential. 
 
 When a member writes, their PDS sends a `com.atproto.space.notifyWrite` to each endpoint registered for that repo. A PDS may not otherwise know which services are syncing the space, which is why the **space authority** registers itself as a subscriber on each repo host. Members notify the authority, and the authority forwards each notification to the endpoints registered with it for the space. Each notified syncer then pulls the updated repo directly from the relevant repo host. The authority only routes notifications and does not carry record data.
 
@@ -364,7 +364,7 @@ A space may be deleted by its authority. The authority stops issuing credentials
 
 The authority then notifies registered syncers and known repo hosts of participating members with `com.atproto.space.notifySpaceDeleted`, over the same best-effort path as write notifications. 
 
-A **syncer** should delete every copy of the space's data it holds, both the repos it pulled and any derived state, as it is no longer authorized to retain them. A **repo host** should instead flag the member's repo as belonging to a deleted space rather than erase it. The data is the user's own, so the host decides how and whether to surface it to the user (e.g. an export, a grace period) before garbage-collecting.
+A **syncer** should delete every copy of the space's data it holds, both the repos it pulled and any derived state, as it is no longer authorized to retain them. A **repo host** should instead flag the member's repo as belonging to a deleted space rather than erase it. The data is the user's own, so the repo host decides how and whether to surface it to the user (e.g. an export, a grace period) before garbage-collecting.
 
 ## OAuth scopes
 
@@ -404,7 +404,7 @@ A request is authorized by a grant when its target space matches the grant's `(d
 
 **Record operations** are governed by `action`:
 
-- `read` covers every repo in the space and ignores `collection`.
+- `read` covers every repo in the space and ignores `collection` since read access is all-or-nothing.
 - `read_self` covers only the holder's own repo and is constrained by `collection`. A `read` grant also satisfies a `read_self` request.
 - `create`, `update`, and `delete` act on a specific record, so they are additionally constrained by `collection`
 
@@ -503,6 +503,8 @@ The protocol does not specify how spaces are created or how an authority decides
 `com.atproto.simplespace` is the space-management implementation that every PDS MUST support. It gives applications a baseline that is available on every account's PDS to build against. `simplespace` spaces are anchored on a user's own DID and governed by an explicit member list (or the `public` and `managing-app` describe policies below).
 
 `simplespace` is neither the only permitted implementation nor a privileged one. It is simply the one that PDSs are required to support. Other space types may define their own management implementations and are full protocol participants, but they are hosted on bespoke space services rather than on the PDS.
+
+All simplespace methods are called with an OAuth credential with the relevant `manage` scope.
 
 | Method | Type | Description |
 |---|---|---|
