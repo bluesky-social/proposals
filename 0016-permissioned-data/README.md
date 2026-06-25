@@ -218,14 +218,12 @@ Example JWT header and payload (before base64url encoding and signing):
 {
   "iss": "did:example:space_did", // Space authority DID
   "sub": "ats://did:example:space_did/com.example.space_type/space_key", // Space the credential reads
-  "client_id": "https://app.example.com/client-metadata.json", // Attested application (the verified attestation's iss; omitted if there was none)
   "iat": 1738368000, // Issued-at (unix seconds)
   "exp": 1738375200, // iat + 7200 (2 hours)
   "jti": "9f8e7d6c5b4a3210fedcba9876543210" // random nonce
 }
 ```
 
-The `client_id` here is the human-readable application identity, taken from the `iss` of the [client attestation](#client-attestation) the authority verified. It is omitted when the request carried no attestation. A repo host treats it as advisory as the signature over the credential comes from the space authority, not the client.
 
 The signature for the space credential is computed using the regular JWT process, using the space authority's signing key.
 
