@@ -39,20 +39,20 @@ This protocol provides **access control, not confidentiality**. It is not end-to
 - **Space authority**: the DID at the root of a space, which resolves to the space host and the key material for issuing credentials.
 - **Space credential**: a token issued by the space authority that grants read access to a space.
 - **Delegation token**: a token issued by a user's PDS that an application exchanges with a space authority for a space credential.
-- **Client attestation**: a token signed by an application's own client authentication key, proving the application's identity to a space authority. Required only when a space gates on app identity.
+- **Client attestation**: a token signed by an application's own client authentication key, proving the application's identity to a space authority. Required only when a space gates on client app identity.
 - **Syncer**: an application that keeps its own copy of a space in sync by pulling from repo hosts.
 
 A PDS fulfills both the roles of a **repo host** and a **space host**. However, these roles are discussed separately because they do not necessarily need to be filled by a PDS. A permissioned repo or a space may be hosted by any service that implements the [required APIs](#xrpc-api).
 
 ## Spaces
 
-A **space** is an authorization and sync boundary representing a shared social context. A space may include many different types of records from many users. The space does not colocate records. Instead, each user stores their own records for a given space in a [permissioned repo](#permissioned-repos) on their own repo host. A space is the union of these per-user repos across the network: an application presenting a space pulls each member's repo from its host, assembles the view, and applies access control to requesting users.
+A **space** is an authorization and sync boundary representing a shared social context. A space may include many different types of records from many users. The space does not colocate records on a single network host. Instead, each user stores their own records for a given space in a [permissioned repo](#permissioned-repos) on their own repo host. A space is the aggregation of these per-user repos across the network: an application presenting a space pulls each member's repo from its host, assembles the view, and applies access control to requesting users.
 
 Each space is identified by three values:
 
-1. **authority**: a DID, the root of authority for the space
-2. **type**: an NSID describing the modality of the space
-3. **space key** (`skey`): a string distinguishing spaces of the same type under the same authority
+1. **space authority**: a DID, the root of authority for the space
+2. **space type**: an NSID describing the modality of the space
+3. **space key** (`skey`): a string distinguishing spaces of the same space type under the same space authority
 
 Reading or syncing a space requires a **space credential** signed by the declared signing key of the space authority. The space authority decides whether to issue one based on the requesting user and client application. The protocol does not define how that decision is made and carries no member list (see [Access Control](#access-control)). Spaces scale from a single user's personal data (e.g. bookmarks) to communities of millions of users.
 
@@ -93,7 +93,7 @@ Both values MAY resolve to the same values as `#atproto` and `#atproto_pds` from
 
 ### Space type
 
-A space's **type** is an NSID that names its modality and resolves to a [space declaration](#space-type-declarations). It identifies the kind of data a space holds before any network resolution, much as a collection NSID does in public atproto. Because a type names a concrete modality, every space is some specific kind of space rather than a generic container.
+A space's **type** is an NSID that names its modality and resolves to a [space type declaration](#space-type-declarations). It identifies the kind of data a space holds before any network resolution, much as a collection NSID does in public atproto. Because a type names a concrete modality, every space is some specific kind of space rather than a generic container.
 
 The type is also the **OAuth consent boundary**. Access is granted to a user by type, e.g. "access to your AtmoBoards forums" (see [OAuth scopes](#oauth-scopes)).
 
@@ -148,6 +148,8 @@ Some spaces do not require a client attestation. This can be detected by queryin
 
 A **delegation token** proves that an application is acting on a user's behalf when it asks an authority for a space credential. The user's PDS mints it, requested through [`com.atproto.space.getDelegationToken`](#xrpc-api). It asserts only the delegation from user to application. Whether the user is a member of the space is the authority's determination, and the delegation token says nothing about it. The token is single-use, short-lived (default 60 seconds), and addressed (`aud`) to the space authority.
 
+A client app session can only request a delegation token for a space it has been authorized to access. The application must hold a covering [`space:` OAuth scope](#oauth-scopes) (specifically a `read` grant, which confers access to `getDelegationToken`).
+
 A delegation token is structurally similar to an atproto [service auth token](https://atproto.com/specs/xrpc), but it differs in a few ways that make it its own credential class rather than an interchangeable one: 
 - The `typ` field in the header is set to `atproto-space-delegation+jwt`.
 - It does not include an `lxm` claim.
@@ -177,7 +179,7 @@ The signature for the delegation token is computed using the regular JWT process
 
 ### Client attestation
 
-A **client attestation** is a short-lived JWT that the application presents to the space authority alongside the delegation token to identify itself, when the space requires it. It is structurally a `private_key_jwt` [client assertion](https://atproto.com/specs/oauth), the same shape an atproto confidential client already presents to its authorization server, but addressed to the space authority rather than to the PDS.
+A **client attestation** is a short-lived, single-use JWT that the application presents to the space authority alongside the delegation token to identify itself, when the space requires it. It is structurally a `private_key_jwt` [client assertion](https://atproto.com/specs/oauth), the same shape an atproto confidential client already presents to its authorization server, but addressed to the space authority rather than to the PDS.
 
 ```json
 {
@@ -200,6 +202,8 @@ The authority verifies the attestation by resolving `iss` (the `client_id`) to t
 ### Space credential
 
 A **space credential** is the token an application presents to a repo host to read a permissioned repo within a space. The authority mints it in exchange for a delegation token, requested through [`com.atproto.space.getSpaceCredential`](#xrpc-api). It is short-lived (default 2 hours) and signed by the space authority's signing key, so any repo host can verify it against the authority's key without contacting the authority.
+
+A space credential is multi-use. A single credential is intended to be reused across every repo host serving a repo in the space as well as against a given host for repeated requests, until it expires.
 
 A space credential resembles a [space delegation token](#delegation-token), differing in these ways:
 
@@ -289,28 +293,32 @@ Note: these length prefixes are big-endian, following the TLS convention for wir
 
 ```
 ctx = "atproto-space-v1"            // fixed protocol tag
-   || uint16be(len(space)) || space  // space URI (ats://authority/type/skey)
-   || uint16be(len(rev))   || rev    // commit revision (TID)
-   || uint16be(len(ikm))   || ikm    // per-commit nonce (below)
+   || uint16be(len(space))  || space  // space URI (ats://authority/type/skey)
+   || uint16be(len(author)) || author // author DID of the repo
+   || uint16be(len(rev))    || rev    // commit revision (TID)
+   || uint16be(len(ikm))    || ikm    // per-signature nonce (below)
 ```
 
 A commit is then produced as follows:
 
 1. Generate `ikm`, 32 fresh random bytes. A new `ikm` is generated for each reader the commit is served to.
-2. Compute `sig = sign(ctx)` with the user's signing key. The signed message only contains the space, revision and ikm, not the current repository hash. 
+2. Compute `sig = sign(ctx)` with the user's signing key. The signed message only contains the space, author DID, revision and ikm, not the current repository hash. 
 3. Compute `mac = HMAC-SHA256(HKDF-SHA256(ikm, ctx), hash)`, binding the repository hash to this commit's context.
 
-A reader verifies `sig` against the user's signing key (authenticity), then recomputes `mac` and compares (integrity). Because the digest is bound by a *symmetric* MAC keyed from the public `ikm`, anyone holding the commit can compute a valid `mac` for any `hash`, so a rebroadcast commit cannot prove what the user wrote, only that they signed a `(space, rev, ikm)` context. 
+A reader verifies `sig` against the user's signing key (authenticity), then recomputes `mac` and compares (integrity). Because the digest is bound by a *symmetric* MAC keyed from the public `ikm`, anyone holding the commit can compute a valid `mac` for any `hash`, so a rebroadcast commit cannot prove what the user wrote, only that they signed a `(space, author, rev, ikm)` context.
 
 The signed commit (`com.atproto.space.defs#signedCommit`):
 
 | Field | Type | Description |
 |---|---|---|
+| `ver` | integer | commit format version, currently `1` |
 | `hash` | bytes | `sha256` of the LtHash state (32 bytes) |
 | `ikm` | bytes | per-commit nonce (32 random bytes) |
 | `sig` | bytes | `sign(ctx)` by the user's signing key |
 | `mac` | bytes | `HMAC-SHA256(HKDF-SHA256(ikm, ctx), hash)` |
 | `rev` | string | commit revision (TID), also bound into `ctx` |
+
+The `ver` field is fixed at `1` for this version of the protocol. It corresponds to the version carried in the `ctx` protocol tag (`atproto-space-v1`).
 
 ## Sync
 
@@ -322,17 +330,21 @@ A syncer keeps its own copy of a repo and, alongside it, its own running [set ha
 
 To advance, a syncer calls `com.atproto.space.listRepoOps` with a `since` revision. A repo host keeps an **operation log** of recent writes to each repo and returns the operations after `since`. Each entry is `{ rev (TID), collection, rkey, cid, prev }`. The field `cid` is null for a delete and `prev` is null for a create. Multiple records may be mutated atomically, and this is captured by entries sharing a `rev`. The syncer applies each operation to its copy and updates its running set hash accordingly.
 
+By default `listRepoOps` inlines each created or updated record's value alongside its operation, so a syncer advances in a single call without a `getRecord` round-trip per write. Only the current value for a path is inlined. If a record has been updated or deleted by a later operation, the host omits the intermediate (now stale) values. A syncer may set `excludeValues` to receive only the operation metadata (for example, to drive selective `getRecord` calls).
+
 If a given oplog response includes the last available operation that occurred to a repo, then the response must also include the member's current signed [commit](#commit-signature). The syncer compares the commit's `hash` against its own running set hash. If they match, the syncer is fully in sync and the commit's signature authenticates that state. If they do not, the syncer has diverged and must fall back to a recovery process.
 
 Sync is self-healing because its correctness rests on the set hash comparison rather than on receiving every operation. A missed operation is detected on a subsequent sync. A total disjunction in repository history is also recognizable, and is recovered from by syncing the repository contents in their entirety.
 
-The oplog is a transport optimization rather than a committed data structure. Its contents and history are not guaranteed, and a repo host may compact or drop it, retaining only a backfill window.
+The oplog is a transport optimization rather than a committed data structure. Its contents and history are not guaranteed, and a repo host may compact or drop it, retaining only a backfill window. It is also reset on account migration as a new repo host begins its oplog afresh and does not inherit the prior host's history. In such cases where a syncer that cannot find its `since` revision falls back to [full-state recovery](#full-state-recovery), which does not depend on the oplog.
 
 ### Full-state recovery
 
 In cases in which a syncer cannot proceed incrementally, it must recover by syncing the full state of the repository.
 
 To do so, a syncer enumerates the repo's structure (paths → CIDs) with `com.atproto.space.listRecords`, diffs that against its local copy, and fetches the record values it is missing with `com.atproto.space.getRecord`. It then rebuilds its set hash from the recovered structure and compares it against the signed commit. 
+
+`listRecords` supports the same `excludeValues` parameter as `listRepoOps`. The two access patterns are used in different circumstances. A syncer doing a full backfill of a repo it holds nothing for uses the default, receiving the structure and the record values together in a single paginated pass and avoiding a `getRecord` per record. A syncer healing a copy that has diverged should instead set `excludeValues`, diff the result against its local copy, and issue a small number of selective `getRecord` calls for the records that actually differ. 
 
 ### Blob sync
 
@@ -346,15 +358,19 @@ A syncer subscribes to notifications by calling `com.atproto.space.registerNotif
 
 When a member writes, their PDS sends a `com.atproto.space.notifyWrite` to each endpoint registered for that repo. A PDS may not otherwise know which services are syncing the space, which is why the **space authority** registers itself as a subscriber on each repo host. Members notify the authority, and the authority forwards each notification to the endpoints registered with it for the space. Each notified syncer then pulls the updated repo directly from the relevant repo host. The authority only routes notifications and does not carry record data.
 
-Notifications are **best-effort** and are not required for correctness. If a notification is dropped, the affected repo is caught up by a later write's notification, or by a periodic sweep by the syncer.
+A repo host does not need an explicit out-of-band registration step from the authority to know where to send these notifications. On the first write into a repo for a shared space (one whose authority is not the account's own DID), the repo host resolves the space authority's `#atproto_space_host` endpoint and **auto-registers** it as a subscriber for that repo. The authority may later un-register if it no longer wishes to be notified. (Personal-data spaces, where the authority is the account's own DID and the PDS plays both roles, need no such registration.)
+
+Notifications are **best-effort** and are not required for eventual consistency. If a notification is dropped, the affected repo is caught up by a later write's notification, or by a periodic sweep by the syncer. A sweep may be done over the [writer set](#the-sync-boundary-writer-set). `com.atproto.space.listRepos` returns each repo's current `rev`, so a syncer can compare those revisions against the revisions it last pulled and re-sync only the repos that have advanced, rather than polling each repo individually.
 
 ### The sync boundary (writer set)
 
-Syncing a single repo requires the syncer to know that the repo exists. To sync a space in full, or to begin syncing a space for the first time, an application requires the set of accounts whose repos hold data in the space. This **writer set** is retrieved from the space authority via `com.atproto.space.listRepos`.
+Syncing an individual repo requires the syncer to know that the repo exists. To sync a space in full, or to begin syncing a space for the first time, an application requires the set of accounts whose repos hold data in the space. This **writer set** is retrieved from the space authority via `com.atproto.space.listRepos`.
 
-Because it subscribes to updates from every repository in the space, the authority can easily maintain a complete and current record of which repos hold data in the space as well as their current rev.
+Because it subscribes to updates from every repository in the space, the authority can easily maintain a complete and current record of which repos hold data in the space. Alongside each account, `listRepos` returns that repo's current `rev` and `hash`.
 
-The writer set is a simple fetch and carries no commit or history. It enumerates only accounts that have **written** to the space. Accounts that may read the space are never enumerated.
+The writer set is a simple fetch and carries no commit or history. It enumerates accounts that have **written at least one record** into the space, not the broader set of accounts that are merely *allowed* to write (which the authority may not even track) nor those that may only read it. Accounts that may read the space are never enumerated at the protocol-level, though applications may choose to enumerate them through records published in the space.
+
+The writer set is what the authority *claims*, and is not itself authoritative for any individual repo. It is current as far as the authority's notifications have kept it. A listed account's repo host is the source of truth for whether that repo actually holds data. A syncer treats the writer set as the starting point for discovery and confirms each repo by syncing it directly from its host.
 
 ## Space deletion
 
@@ -478,12 +494,12 @@ This grouping describes kinds of methods, not separate services. A single servic
 |---|---|---|---|---|
 | `getSpace` | host | query | space credential | Describe a space, including an open-union `config` carrying host-specific configuration. |
 | `getSpaceCredential` | host | procedure | delegation token (+ client attestation) | Exchange a delegation token for a space credential. A client attestation is also required when the space gates on app identity. |
-| `listRepos` | host | query | space credential | List the known repos that hold data in a space. |
+| `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `hash`. |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
-| `listRecords` | repo | query | OAuth / space credential | List the record keys (`collection`, `rkey`, `cid`) in a repo. |
+| `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
 | `getBlob` | repo | query | OAuth / space credential | Fetch a blob by CID. |
 | `getRepoState` | repo | query | OAuth / space credential | The current signed [commit](#commit-signature) for a repo. |
-| `listRepoOps` | repo | query | OAuth / space credential | Primary sync mechanism. A repo's [operation log](#incremental-sync) since a given revision. |
+| `listRepoOps` | repo | query | OAuth / space credential | Primary sync mechanism. A repo's [operation log](#incremental-sync) since a given revision, inlining record values by default. Set `excludeValues` for metadata-only entries. |
 | `getDelegationToken` | pds | query | OAuth | Mint a [delegation token](#delegation-token) for a space. Served by the requesting user's PDS. |
 | `createRecord` | pds | procedure | OAuth | Create a record in the caller's permissioned repo for a space. |
 | `putRecord` | pds | procedure | OAuth | Create or update a record. |
