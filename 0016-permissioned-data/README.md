@@ -33,7 +33,7 @@ The permissioned data protocol provides **access control, not confidentiality**.
 | URI authority | User DID | Space authority DID |
 | Commit | Merkle Search Tree root | LtHash set-hash digest |
 | Signature | Rebroadcastable, archival | Deniable on rebroadcast |
-| Addressing | `at://` URI | `ats://` URI |
+| Addressing | Traditional `at://` URI | `at://` URI with `space` segment |
 | Access | Public | Gated by space credential |
 
 ### Terminology
@@ -64,26 +64,29 @@ Reading or syncing a space requires a **space credential** signed by the declare
 
 ### Addressing
 
-A permissioned record is addressed by an `ats://` URI of six components:
+A permissioned record is addressed by an `at://` URI with a fixed `space` segment:
 
 ```
-ats://{spaceDid}/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
+at://{spaceDid}/space/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
 ```
 
 | Component | Type | Description |
 |---|---|---|
 | `spaceDid` | DID | Space authority DID |
+| `space` | literal | Fixed marker identifying this as a permissioned space URI |
 | `spaceType` | NSID | Space type |
 | `skey` | string | Space key |
 | `authorDid` | DID | DID of the record's author |
 | `collection` | NSID | Record collection |
 | `rkey` | string | Record key |
 
-All six URI segments are necessary to identify a **permissioned record**. The first three components may be used to reference a **space**:
+Permissioned data reuses the `at://` scheme rather than defining its own. The literal `space` segment sits where a collection NSID appears in a public atproto URI, so a permissioned URI is distinguished from a public one by that marker in the first path segment under the authority DID. This is always differentiable as an NSID always has at least two `.`s.
+
+All segments `rkey` are necessary to identify a **permissioned record**. The leading segments through `skey` may be used to reference a **space**:
 
 ```
-Space:  ats://{spaceDid}/{spaceType}/{skey}
-Record: ats://{spaceDid}/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
+Space:  at://{spaceDid}/space/{spaceType}/{skey}
+Record: at://{spaceDid}/space/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
 ```
 
 ### Space authority
@@ -171,7 +174,7 @@ Example JWT header and payload (before base64url encoding and signing):
 }
 {
   "iss": "did:example:user_did", // User DID
-  "sub": "ats://did:example:space_did/com.example.space_type/space_key", // Space being requested
+  "sub": "at://did:example:space_did/space/com.example.space_type/space_key", // Space being requested
   "aud": "did:example:space_did#atproto_space_host", // Space host (service fragment of the authority DID)
   "iat": 1738368000, // Issued-at (unix seconds)
   "exp": 1738368060, // iat + 60 (60 seconds)
@@ -227,7 +230,7 @@ Example JWT header and payload (before base64url encoding and signing):
 }
 {
   "iss": "did:example:space_did", // Space authority DID
-  "sub": "ats://did:example:space_did/com.example.space_type/space_key", // Space the credential reads
+  "sub": "at://did:example:space_did/space/com.example.space_type/space_key", // Space the credential reads
   "iat": 1738368000, // Issued-at (unix seconds)
   "exp": 1738375200, // iat + 7200 (2 hours)
   "jti": "9f8e7d6c5b4a3210fedcba9876543210" // random nonce
@@ -299,7 +302,7 @@ Note: these length prefixes are big-endian, following the TLS convention for wir
 
 ```
 ctx = "atproto-space-v1"            // fixed protocol tag
-   || uint16be(len(space))  || space  // space URI (ats://authority/type/skey)
+   || uint16be(len(space))  || space  // space URI (at://authority/space/type/skey)
    || uint16be(len(author)) || author // author DID of the repo
    || uint16be(len(rev))    || rev    // commit revision (TID)
    || uint16be(len(ikm))    || ikm    // per-signature nonce (below)
