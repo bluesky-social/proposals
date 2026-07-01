@@ -84,12 +84,12 @@ Record: ats://{spaceDid}/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
 
 A space's **authority** is the DID at the root of the space and the issuer of its [credentials](#access-control). It may be a user's own DID as for personal data such as bookmarks or mutes. Or it may be a dedicated DID which lets a shared space transfer between users independently of any individual account.
 
-The authority MUST expose two entries in its DID document:
+A space authority is resolved through two entries in its DID document:
 
 - a **verification method** with id `#atproto_space`: the public key used to verify the space's credentials
 - a **service** entry with id `#atproto_space_host`: the endpoint of the space host
 
-Both values MAY resolve to the same values as `#atproto` and `#atproto_pds` from the public data protocol.
+Both entries are optional. When `#atproto_space` is absent, the space signing key falls back to the account's `#atproto` signing key. Similarly, when `#atproto_space_host` is absent, the space host falls back to the account's `#atproto_pds` service endpoint. An authority MAY instead publish the dedicated entries to point at distinct key material or a distinct host, and MAY set them to the same values as `#atproto` and `#atproto_pds` explicitly.
 
 ### Space type
 
@@ -140,7 +140,7 @@ Reading a space is gated by a **space credential** issued by the space authority
 - **which user** is being acted for: established by a **delegation token** minted by the user's PDS
 - **which application** is acting: established by a **client attestation** signed by the application itself
 
-The delegation token is always required. The client attestation is required only when a space gates on app identity. An application obtains a credential by getting a delegation token from a user's PDS, then presenting that token (together with its client attestation, if needed) to the space authority in exchange for a credential. The authority decides whether to issue the credential. The protocol does not define the decision procedure (the policies of the PDS's space-management implementation are described under [`simplespace`](#required-pds-space-management-simplespace)).
+The delegation token is always required. The client attestation is required only when a space gates on client app identity. An application obtains a credential by getting a delegation token from a user's PDS, then presenting that token (together with its client attestation, if needed) to the space authority in exchange for a credential. The authority decides whether to issue the credential. The protocol does not define the decision procedure (the policies of the PDS's space-management implementation are described under [`simplespace`](#required-pds-space-management-simplespace)).
 
 Some spaces do not require a client attestation. This can be detected by querying the space configuration, or by simply making a request for a credential without an attestation and seeing whether an error is returned.
 
@@ -217,7 +217,7 @@ Example JWT header and payload (before base64url encoding and signing):
 {
   "typ": "atproto-space-credential+jwt",
   "alg": "ES256K", // or ES256
-  "kid": "#atproto_space" // Key Identifier - MUST be "#atproto_space"
+  "kid": "#atproto_space" // Key Identifier - "#atproto_space" or "#atproto"
 }
 {
   "iss": "did:example:space_did", // Space authority DID
@@ -250,7 +250,7 @@ The signature for the space credential is computed using the regular JWT process
 
 1. The user authorizes the application via OAuth.
 2. The application calls `com.atproto.space.getDelegationToken` on the user's PDS, receiving a delegation token.
-3. The application presents the delegation token to the space authority via `com.atproto.space.getSpaceCredential`, adding its own client attestation if the space gates on app identity. The authority verifies what it received and, on authorization, returns a space credential.
+3. The application presents the delegation token to the space authority via `com.atproto.space.getSpaceCredential`, adding its own client attestation if the space gates on client app identity. The authority verifies what it received and, on authorization, returns a space credential.
 4. The application reads the repo from each member's repo host with the credential.
 
 An application serving several users of a space does not necessarily need to maintain a space credential for each user. It may obtain its credential using any one user's session. When it loses all OAuth sessions for a space, it can no longer renew the credential and loses access.
@@ -313,7 +313,7 @@ The signed commit (`com.atproto.space.defs#signedCommit`):
 |---|---|---|
 | `ver` | integer | commit format version, currently `1` |
 | `hash` | bytes | `sha256` of the LtHash state (32 bytes) |
-| `ikm` | bytes | per-commit nonce (32 random bytes) |
+| `ikm` | bytes | per-signature nonce (32 random bytes) |
 | `sig` | bytes | `sign(ctx)` by the user's signing key |
 | `mac` | bytes | `HMAC-SHA256(HKDF-SHA256(ikm, ctx), hash)` |
 | `rev` | string | commit revision (TID), also bound into `ctx` |
@@ -382,22 +382,24 @@ A **syncer** should delete every copy of the space's data it holds, both the rep
 
 ## OAuth scopes
 
-A user grants an application access to spaces through a `space:` OAuth scope. The scope identifies a set of spaces by their `(did, spaceType, skey)` identifier and states what the grant permits within them.
+A user grants an application access to spaces through a `space:` OAuth scope. The scope identifies a set of spaces by their `(authority, spaceType, skey)` identifier and states what the grant permits within them.
 
 ```
-space:<spaceType>[?did=<did>][&skey=<skey>][&collection=<nsid>...][&action=<action>...][&manage=<op>...]
+space:<spaceType>[?authority=<did>][&skey=<skey>][&collection=<nsid>...][&action=<action>...][&manage=<op>...]
 ```
 
 | Parameter | Position | Multiple | Default | Values |
 |---|---|---|---|---|
 | `spaceType` | positional (required) | no | N/A | a space-type NSID, or `*` for any type |
-| `did` | query | no | `*` | a space authority DID, or `*` for any authority |
+| `authority` | query | no | `self` | a space authority DID, `self` for the granting user's own DID, or `*` for any authority |
 | `skey` | query | no | `*` | a space key (1–512 chars), or `*` for any key |
 | `collection` | query | yes | the space type lexicons declared `collections` | a record collection NSID, or `*` for any |
 | `action` | query | yes | `read`, `create`, `update`, `delete` | `read_self`, `read`, `create`, `update`, `delete` |
 | `manage` | query | yes | _(none)_ | `create`, `update`, `delete` |
 
-`did`, `spaceType`, and `skey` select **which spaces** the grant covers, matching the first three segments of a space URI. `action` (and `collection`) govern operations on the **records** in those spaces. `manage` governs operations on the **spaces themselves**.
+`authority`, `spaceType`, and `skey` select **which spaces** the grant covers, matching the first three segments of a space URI. `action` (and `collection`) govern operations on the **records** in those spaces. `manage` governs operations on the **spaces themselves**.
+
+`authority` defaults to `self`, the granting user's own DID, so a bare `space:<spaceType>` grant covers only the user's own spaces of that type. Reaching spaces under other authorities (e.g. a shared forum anchored on an app or another user) requires naming that authority, or `authority=*` for any.
 
 ### Read access
 
@@ -414,7 +416,7 @@ A **space credential** grants whole-space read/sync access directly, so the read
 
 ### Matching
 
-A request is authorized by a grant when its target space matches the grant's `(did, spaceType, skey)` (each component equal to the grant's value or covered by its `*`) and the grant permits the requested operation, per the rules below.
+A request is authorized by a grant when its target space matches the grant's `(authority, spaceType, skey)` (each component equal to the grant's value or covered by its `*`) and the grant permits the requested operation, per the rules below. An `authority` of `self` matches only the space whose authority is the granting user's own DID and is resolved to that DID at grant time.
 
 **Record operations** are governed by `action`:
 
@@ -434,22 +436,23 @@ The protocol does not enumerate what each `manage` verb permits, because space m
 
 ### Examples
 
-- `space:com.atmoboards.forum`: every `com.atmoboards.forum` space the user is in, with read access for the entire space and write access to the collections the forum's declaration lists (`com.atmoboards.thread`, `com.atmoboards.reply`). This is the typical grant for a forum client.
-- `space:com.atmoboards.forum?action=read`: the same spaces, read-only. No `collection` is needed because `read` is not constrained by collection.
-- `space:com.atmoboards.forum?action=read_self&collection=*`: read-only, and only the user's own repo in those forums. Suitable for a personal export or backup tool that should not see other members' posts. Note that `collection=*` is required to read all records (not just those declared in the Lexicon).
-- `space:com.atmoboards.forum?collection=*`: read access plus write access to every collection, not only the declared ones.
-- `space:com.atmoboards.forum?skey=default&collection=com.atmoboards.thread&action=create&action=update`: create and update `com.atmoboards.thread` records in the forum keyed `default`, under any authority.
-- `space:com.atmoboards.forum?action=read_self&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with read access, but no record-write access. 
-- `space:com.atmoboards.forum?manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with full read/write access to records in the space. 
-- `space:*?did=did:plc:abc123`: read every space under authority `did:plc:abc123`, any type.
+- `space:com.example.bookmarks`: the user's own bookmarks space, with read access and write access to the collections its declaration lists. `authority` defaults to `self`, so this is the typical grant for personal data.
+- `space:com.atmoboards.forum?authority=*`: every `com.atmoboards.forum` space the user is in under any authority, with read access for the entire space and write access to the collections the forum's declaration lists (`com.atmoboards.thread`, `com.atmoboards.reply`). This is the typical grant for a forum client, which reads forums hosted by others.
+- `space:com.atmoboards.forum?authority=*&action=read`: the same spaces, read-only. No `collection` is needed because `read` is not constrained by collection.
+- `space:com.atmoboards.forum?authority=*&action=read_self&collection=*`: read-only, and only the user's own repo in those forums. Suitable for a personal export or backup tool that should not see other members' posts. Note that `collection=*` is required to read all records (not just those declared in the Lexicon).
+- `space:com.atmoboards.forum?authority=*&collection=*`: read access plus write access to every collection, not only the declared ones.
+- `space:com.atmoboards.forum?authority=did:plc:abc123&skey=default&collection=com.atmoboards.thread&action=create&action=update`: create and update `com.atmoboards.thread` records in the forum keyed `default` under authority `did:plc:abc123`.
+- `space:com.atmoboards.forum?authority=*&action=read_self&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with read access, but no record-write access. 
+- `space:com.atmoboards.forum?authority=*&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with full read/write access to records in the space. 
+- `space:*?authority=did:plc:abc123`: read every space under authority `did:plc:abc123`, any type.
 
 ### Consent
 
 A `space:` scope is presented to the user on the OAuth consent screen and requires user-legible text. Each space `type` resolves to a [space declaration](#space-type-declarations). The consent screen then displays the declaration's `name` (e.g. "AtmoBoards Forum") in place of the raw NSID. 
 
-If a particular `did` is specified in a scope, that DID should be presented to the user as the bidirectionally linked handle associated with the DID. If no handle bidirectionally validates, then the DID itself should be shown.
+If a particular `authority` DID is specified in a scope, it should be presented to the user as the bidirectionally linked handle associated with the DID. If no handle bidirectionally validates, then the DID itself should be shown. An `authority` of `self` refers to the user's own account and needs no such presentation.
 
-A scope may request wild card access on both `did` and `type`. This is a very broad grant, and as such the consent screen should present such a scope with a promnient warning. 
+A scope may request wild card access on both `did` and `type`. This is a very broad grant, and as such the consent screen should present such a scope with a prominent warning. 
 
 ### Permission sets
 
@@ -465,6 +468,7 @@ Space permissions can also be bundled, usually with more user-friendly verbiage,
       "type": "permission",
       "resource": "space",
       "spaceType": "com.atmoboards.forum",
+      "authority": "*",
       "collection": ["com.atmoboards.thread", "com.atmoboards.reply"],
       "action": ["read", "create"]
     },
@@ -472,9 +476,9 @@ Space permissions can also be bundled, usually with more user-friendly verbiage,
 }
 ```
 
-Within a permission, `"type": "permission"` is the entry discriminator, `"resource": "space"` selects the space resource, and the remaining fields carry the same parameters as the `space:` scope string: `spaceType`, `did`, `skey`, `collection`, and `action`.
+Within a permission, `"type": "permission"` is the entry discriminator, `"resource": "space"` selects the space resource, and the remaining fields carry the same parameters as the `space:` scope string: `spaceType`, `authority`, `skey`, `collection`, and `action`.
 
-A set permission must name a concrete space type. In other words, the `spaceType` parameter may **not** be a wildcard inside a permission set. The other parameters may still be wildcards, including `did` and `collection`. A cross-type grant (`spaceType=*`) is expressible only as a standalone `space:` scope requested directly.
+A set permission must name a concrete space type. In other words, the `spaceType` parameter may **not** be a wildcard inside a permission set. The other parameters may still be wildcards, including `authority` and `collection`. A cross-type grant (`spaceType=*`) is expressible only as a standalone `space:` scope requested directly.
 
 When expressing space resources in a permission set, the `spaceType` must follow the [Namespace Authority](https://atproto.com/specs/permission#namespace-authority) requirements associated with permission sets. However, the collection parameter may be a wildcard or list collections under a different namespace authority than the space and the permission set.
 
@@ -493,7 +497,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | Method | Role | Type | Auth | Description |
 |---|---|---|---|---|
 | `getSpace` | host | query | space credential | Describe a space, including an open-union `config` carrying host-specific configuration. |
-| `getSpaceCredential` | host | procedure | delegation token (+ client attestation) | Exchange a delegation token for a space credential. A client attestation is also required when the space gates on app identity. |
+| `getSpaceCredential` | host | procedure | delegation token (+ client attestation) | Exchange a delegation token for a space credential. A client attestation is also required when the space gates on client app identity. |
 | `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `hash`. |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
@@ -514,7 +518,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 
 The protocol does not specify how spaces are created or how an authority decides who may read them. Those are the concern of each space-management implementation, which sits above the protocol and is identified by its own lexicon namespace.
 
-`com.atproto.simplespace` is the space-management implementation that every PDS MUST support. It gives applications a baseline that is available on every account's PDS to build against. `simplespace` spaces are anchored on a user's own DID and governed by an explicit member list (or the `public` and `managing-app` describe policies below).
+`com.atproto.simplespace` is the space-management implementation that every PDS MUST support. It gives applications a baseline that is available on every account's PDS to build against. `simplespace` spaces are anchored on a user's own DID and governed by an explicit member list (or the `public` and `managing-app` policies described below).
 
 `simplespace` is neither the only permitted implementation nor a privileged one. It is simply the one that PDSs are required to support. Other space types may define their own management implementations and are full protocol participants, but they are hosted on bespoke space services rather than on the PDS.
 
@@ -535,13 +539,13 @@ All simplespace methods are called with an OAuth credential with the relevant `m
 
 | Field | Values | Description |
 |---|---|---|
-| `mintPolicy` | `public` \| `member-list` \| `managing-app` | How the authority decides whether to authorize a _user_. |
+| `policy` | `public` \| `member-list` \| `managing-app` | How the authority decides whether to authorize a _user_. |
 | `appAccess` | open union (`#open` \| `#allowList`) | How the authority decides whether to authorize an _app_. |
-| `managingApp` | service identifier (DID + fragment) | Used to route application requests, and as the access check traget in `managing-app` mode. |
+| `managingApp` | service identifier (DID + fragment) | Used to route application requests, and as the access check target in `managing-app` mode. |
 
-A user must be authorized by `mintPolicy` **and** their app by `appAccess` for a credential to be minted. A syncing app needs a valid delegation token regardless.
+A user must be authorized by the `policy` **and** their app by `appAccess` for a credential to be minted. A syncing app needs a valid delegation token regardless.
 
-**Mint policy** decides per-user authorization:
+**Policy** decides per-user authorization:
 - `member-list` (default): authorize requesters present on the member list.
 - `public`: authorize any requester.
 - `managing-app`: at mint time, ask `managingApp` whether to authorize the request, via [`checkUserAccess`](#the-managing-app) below. Enables dynamic policies (e.g. follower-gating) without an app maintaining a list.
@@ -554,7 +558,7 @@ A user must be authorized by `mintPolicy` **and** their app by `appAccess` for a
 
 Spaces may list a `managingApp`. Any account with access to the space can read the selected managing app in the space config through `com.atproto.space.getSpace`. This endpoint may be used to route certain application-level requests that cannot be handled by a generic PDS implementation, such as join requests. Calls to managing apps are generally authenticated using service auth tokens.
 
-When a space's `mintPolicy` is `managing-app`, the space authority defers to the space's `managingApp` at mint time by calling `com.atproto.simplespace.checkUserAccess`. 
+When a space's `policy` is `managing-app`, the space authority defers to the space's `managingApp` at mint time by calling `com.atproto.simplespace.checkUserAccess`. 
 
 Unlike the other `simplespace` methods, `checkUserAccess` is served by the `managingApp`, not the PDS. The authority calls it with itself as `iss` and the `managingApp`'s service identifier as `aud`, so the app can verify the call genuinely originates from the space's authority. It passes the space, the requesting user, and the requesting client (the **attested** `client_id`, if any), and the managing app returns whether to authorize.
 
