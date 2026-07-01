@@ -2,24 +2,30 @@
 
 *This is a draft proposal, not the final specification. Details, terminology, and behaviors are all likely to change.*
 
+For discussion, see the [community forum](https://discourse.atprotocol.community/t/early-permissioned-data-proposal-draft-feedback/923).
+
+For a friendlier introduction to the problem space and deeper analysis of design decisions made along the way, see the [perrmissioned data diary](https://dholms.leaflet.pub/) blob posts.
+
 ## Introduction
 
-The [AT Protocol][ATPROTO] is a protocol for public broadcast data. Users publish records into a repository on their PDS, and applications crawl those repositories to build views. Authority rests in the DID that publishes a record, and records are signed, redistributable, and universally addressable.
+[AT Protocol](https://atproto.com) (atproto) is a foundation for building social applications on shared, user-owned data. While commonly referred to as a "protocol", atproto is actually a framework composed of several distinct protocols as well as a schema language. Atproto currently includes a data repository and sync protocol for public broadcast data.
 
-This document specifies a **permissioned data protocol** for data that is _not_ public, data with an access perimeter. It runs alongside the public protocol and serves modalities such as:
+In the public broadcast protocol, users publish records into a repository on their PDS, and applications crawl those repositories to build views. Records are signed, redistributable, and universally addressable, with authority resting in the DID that publishes a record.
+
+This document specifies an additional data protocol for **permissioned data**, or data with an access perimeter. The permissioned data protocol serves modalities such as:
 
 - **Personal data**: bookmarks, mutes, drafts
 - **Gated content**: paid newsletters, subscriber-only posts
 - **Socially shared**: private posts, stories
 - **Groups**: private forums, communities, group chats
 
-The permissioned protocol shares the abstract shape of public atproto. It retains identity-based authority, per-user repositories, lexicon-typed records, and the general flow of applications crawling PDSes to build views. However it is a **distinct protocol** rather than an extension of the public one. It has its own repository format, sync mechanism, addressing scheme, and resolution path. Public atproto is built for public broadcast (signed, archival, rebroadcastable) while the permissioned protocol is built for party-to-party transmission within an access boundary.
+The permissioned data protocol shares the abstract shape of public broadcast. It retains DID-based authority, per-user repositories, lexicon-typed records, and the general flow of applications crawling PDSes to build views. However it has its own repository format, sync mechanism, addressing scheme, and resolution path. Public broadcast is built for open distribution (signed, archival, rebroadcastable) while the permissioned data protocol is built for party-to-party transmission within an access boundary.
  
-This protocol provides **access control, not confidentiality**. It is not end-to-end encrypted. Services (both PDSes and authorized applications) can read the data they handle, which is required for server-side features such as search, indexing, notifications, aggregation, and moderation. E2EE is a separate concern that may be layered on top by an application and is out of scope in this proposal.
+The permissioned data protocol provides **access control, not confidentiality**. It is [not end-to-end encrypted](https://dholms.leaflet.pub/3meluqcwky22a). Services (both PDSes and authorized applications) can read the data they handle, which is required for server-side features such as search, indexing, notifications, aggregation, and moderation. E2EE is a separate concern that may be layered on top by an application and is out of scope in this proposal.
 
-### Relationship to public atproto
+### Relationship to public broadcast
 
-| | Public atproto | Permissioned protocol |
+| | Public broadcast | Permissioned data |
 |---|---|---|
 | Unit of data | Record in a repo | Record in a permissioned repo |
 | Repo scope | One repo per user | One permissioned repo per (user, space) |
@@ -120,7 +126,7 @@ A space type NSID resolves to a **space type declaration**: a Lexicon definition
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `type` | `"space"` | yes | Marks this as a space declaration. Must be the `main` definition. |
+| `type` | `"space"` | yes | Marks this as a space type declaration. Must be the `main` definition. |
 | `description` | string | no | Description of the space type for developers. Not shown to users. |
 | `key` | string | yes | Specifies the recommended space key type (similar to [record key types](https://atproto.com/specs/record-key#record-key-type-tid)) |
 | `name` | string (1–64) | yes | Human-readable name for the space type, shown to users on consent screens. |
@@ -265,7 +271,7 @@ Each permissioned repo is summarized by a **commit**. A commit is a short, signe
 
 The digest in a commit is computed from a **set hash** over the records a repo currently contains. It is independent of write/delete order, so two repos with the same records always produce the same digest. Adding or removing a record is a single cheap operation, so a repo host maintains the set hash incrementally on each write.
 
-The construction is [LtHash][LTHASH], a homomorphic hash built on a lattice problem (and thus quantum-secure). A record is added to or removed from the digest with a single addition or subtraction rather than a recomputation over the whole repo.
+The construction is [LtHash](https://eprint.iacr.org/2019/227), a homomorphic hash built on a lattice problem (and thus quantum-secure). A record is added to or removed from the digest with a single addition or subtraction rather than a recomputation over the whole repo.
 
 The state is a fixed 2048-byte buffer, interpreted as 1024 little-endian unsigned 16-bit lanes.
 
@@ -287,7 +293,7 @@ The commit's `hash` is `sha256(state)`, a 32-byte digest of the 2048-byte buffer
 
 A user does not sign the digest directly since a signature over the content digest would be a rebroadcastable proof of what the user wrote in a private space. Instead the signature covers only random per-commit bytes, and the digest is bound to those bytes by a symmetric MAC. A reader in the sync flow gets full authenticity and integrity, but a leaked commit is deniable and proves nothing about its contents to a third party.
 
-Both the signature and the MAC are domain-separated by a single context string, `ctx`, built once and reused for both. `ctx` uses the variable-length-vector encoding from [TLS 1.3][RFC8446] (§3.4). It is composed of a fixed protocol tag followed by each variable field length-prefixed with a big-endian `uint16`.
+Both the signature and the MAC are domain-separated by a single context string, `ctx`, built once and reused for both. `ctx` uses the variable-length-vector encoding from [TLS 1.3](https://www.rfc-editor.org/rfc/rfc8446) (§3.4). It is composed of a fixed protocol tag followed by each variable field length-prefixed with a big-endian `uint16`.
 
 Note: these length prefixes are big-endian, following the TLS convention for wire encodings. This is the opposite byte order from the little-endian lanes of the [commit digest](#commit-digest), which follows the LtHash reference construction. The two come from different specs and each keeps its native byte order.
 
@@ -450,7 +456,7 @@ The protocol does not enumerate what each `manage` verb permits, because space m
 
 ### Consent
 
-A `space:` scope is presented to the user on the OAuth consent screen and requires user-legible text. Each space `type` resolves to a [space declaration](#space-type-declarations). The consent screen then displays the declaration's `name` (e.g. "AtmoBoards Forum") in place of the raw NSID. 
+A `space:` scope is presented to the user on the OAuth consent screen and requires user-legible text. Each space `type` resolves to a [space type declaration](#space-type-declarations). The consent screen then displays the declaration's `name` (e.g. "AtmoBoards Forum") in place of the raw NSID. 
 
 If a particular `authority` DID is specified in a scope, it should be presented to the user as the bidirectionally linked handle associated with the DID. If no handle bidirectionally validates, then the DID itself should be shown. An `authority` of `self` refers to the user's own account and needs no such presentation.
 
@@ -565,11 +571,3 @@ When a space's `policy` is `managing-app`, the space authority defers to the spa
 Unlike the other `simplespace` methods, `checkUserAccess` is served by the `managingApp`, not the PDS. The authority calls it with itself as `iss` and the `managingApp`'s service identifier as `aud`, so the app can verify the call genuinely originates from the space's authority. It passes the space, the requesting user, and the requesting client (the **attested** `client_id`, if any), and the managing app returns whether to authorize.
 
 The app evaluates the request against whatever application-layer state it maintains (e.g. follower graphs, paid-subscription status, join approvals) and returns its decision. The authority mints the credential only if the app authorizes and applies `appAccess` as usual.
-
-<!-- references -->
-
-[ATPROTO]: https://atproto.com
-[PERMISSION-SET]: https://atproto.com/specs/permission#permission-sets
-[LTHASH]: https://eprint.iacr.org/2019/227
-[RFC8446]: https://www.rfc-editor.org/rfc/rfc8446
-[OAUTH-ATTEST]: https://datatracker.ietf.org/doc/draft-ietf-oauth-attestation-based-client-auth/
