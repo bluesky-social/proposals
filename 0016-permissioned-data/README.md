@@ -329,6 +329,23 @@ The signed commit (`com.atproto.space.defs#signedCommit`):
 
 The `ver` field is fixed at `1` for this version of the protocol. It corresponds to the version carried in the `ctx` protocol tag (`atproto-space-v1`).
 
+### Repo serialization
+
+A permissioned repo may be serialized to a [CAR file](https://dasl.ing/car.html), the same serialization format used to export a public atproto repository. It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
+
+The CAR header declares **two roots**, in order:
+
+1. the **signed commit** — the [`signedCommit`](#commit-signature) block described above
+2. the **index** — a [DRISL](https://dasl.ing/drisl.html) (DAG-CBOR) map from `"{collection}/{rkey}"` to the record's CID, with keys in lexicographic order
+
+The record blocks follow the two roots, and MUST appear in the same lexicographic order as their index entries. 
+
+The serialization carries the information needed to reconstruct and verify the repo, and a consumer can validate it as a stream:
+
+1. Verify the commit's signature and MAC. The commit's `hash` is now trusted.
+2. Fold each index entry's `{collection}/{rkey}/{record_cid}` into a running [set hash](#commit-digest) as it is read, then compare the result against the commit's `hash`. This authenticates the whole index without reading a single record.
+3. Verify each record block against its own CID as it streams past.
+
 ## Sync
 
 Permissioned data sync is functionally similar to public atproto. Applications build views by pulling repos from their hosts. The major difference is that there is no relay to provide a collated firehose of data for the network as permissioned repositories are by their nature non-rebroadcastable. An application pulls directly from each repo host and is responsible for keeping its own copy in sync.
@@ -351,9 +368,9 @@ The oplog is a transport optimization rather than a committed data structure. It
 
 In cases in which a syncer cannot proceed incrementally, it must recover by syncing the full state of the repository.
 
-To do so, a syncer enumerates the repo's structure (paths → CIDs) with `com.atproto.space.listRecords`, diffs that against its local copy, and fetches the record values it is missing with `com.atproto.space.getRecord`. It then rebuilds its set hash from the recovered structure and compares it against the signed commit. 
+To do so, a syncer fetches the whole repo as a [serialized CAR](#repo-serialization) from `com.atproto.space.getRepo`. It folds the index into a running set hash and compares that against the signed commit to authenticate the index, then validates each record block against its index CID as it streams past, rebuilding its local copy. A syncer replacing an existing copy diffs the recovered structure against what it holds and keeps only the records it is missing.
 
-`listRecords` supports the same `excludeValues` parameter as `listRepoOps`. The two access patterns are used in different circumstances. A syncer doing a full backfill of a repo it holds nothing for uses the default, receiving the structure and the record values together in a single paginated pass and avoiding a `getRecord` per record. A syncer healing a copy that has diverged should instead set `excludeValues`, diff the result against its local copy, and issue a small number of selective `getRecord` calls for the records that actually differ. 
+For the narrower case of *healing* a copy that has only slightly diverged, a syncer may prefer to avoid transferring the whole repo. It can fetch the latest commit through `com.atproto.space.getLatestCommit`, enumerate the repo's structure (paths → CIDs) with `com.atproto.space.listRecords` using `excludeValues`, diff that lightweight listing against its local copy, and fetch just the differing records with `com.atproto.space.getRecord`. This trades the single `getRepo` round-trip for a smaller total transfer when most of the repo is already held.
 
 ### Blob sync
 
@@ -416,7 +433,7 @@ space:<spaceType>[?authority=<did>][&skey=<skey>][&collection=<nsid>...][&action
 
 A `read` grant confers two things:
 
-- access to the read and sync methods (`com.atproto.space.getRecord`, `listRecords`, `getBlob`, `getRepoState`, `listRepoOps`) on the holder's own PDS, sufficient to read the holder's own repo in the space
+- access to the read and sync methods (`com.atproto.space.getRecord`, `listRecords`, `getBlob`, `getLatestCommit`, `getRepo`, `listRepoOps`) on the holder's own PDS, sufficient to read the holder's own repo in the space
 - access to `com.atproto.space.getDelegationToken` for that space, which an application exchanges for a space credential to read  any repo in the space
 
 `read_self` is the narrower grant. It confers access to the same read and sync methods, but only for the holder's **own** repo in the space, and it does **not** grant `getDelegationToken`. An application holding only `read_self` can read its user's own records but cannot reach the rest of the space. `read` implies `read_self`.
@@ -513,7 +530,8 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
 | `getBlob` | repo | query | OAuth / space credential | Fetch a blob by CID. |
-| `getRepoState` | repo | query | OAuth / space credential | The current signed [commit](#commit-signature) for a repo. |
+| `getLatestCommit` | repo | query | OAuth / space credential | The current signed [commit](#commit-signature) for a repo. |
+| `getRepo` | repo | query | OAuth / space credential | Download a whole repo as a [serialized CAR](#repo-serialization) for full-state backfill. |
 | `listRepoOps` | repo | query | OAuth / space credential | Primary sync mechanism. A repo's [operation log](#incremental-sync) since a given revision, inlining record values by default. Set `excludeValues` for metadata-only entries. |
 | `getDelegationToken` | pds | query | OAuth | Mint a [delegation token](#delegation-token) for a space. Served by the requesting user's PDS. |
 | `createRecord` | pds | procedure | OAuth | Create a record in the caller's permissioned repo for a space. |
