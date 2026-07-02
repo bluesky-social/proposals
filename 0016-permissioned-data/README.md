@@ -80,7 +80,7 @@ at://{spaceDid}/space/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
 | `collection` | NSID | Record collection |
 | `rkey` | string | Record key |
 
-Permissioned data reuses the `at://` scheme rather than defining its own. The literal `space` segment sits where a collection NSID appears in a public atproto URI, so a permissioned URI is distinguished from a public one by that marker in the first path segment under the authority DID. The two are never ambiguous as a public collection is an NSID, which always contains at least two `.`s, whereas the `space` marker contains none.
+Permissioned data reuses the `at://` scheme rather than defining its own. The literal `space` segment sits where a collection NSID appears in a public atproto URI, so a permissioned URI is distinguished from a public one by that marker in the first path segment under the authority DID. The two are never ambiguous, as a public collection is an NSID, which always contains at least two `.`s, whereas the `space` marker contains none.
 
 All segments through `rkey` are necessary to identify a **permissioned record**. The leading segments through `skey` may be used to reference a **space**:
 
@@ -266,7 +266,7 @@ An application serving several users of a space does not necessarily need to mai
 
 ## Permissioned repos
 
-A **permissioned repo** is one accounts's set of records within one space, generally stored on that user's own PDS. A user has one permissioned repo per space it participates in. Abstractly, a permissioned repo offers a similar interface to a public [atproto repository](https://atproto.com/specs/repository): a key/value mapping where keys are path names (a collection NSID and an rkey) and values are CBOR-encoded records. PDSes expose a CRUD interface for interacting with a user's permissioned repos.
+A **permissioned repo** is one account's set of records within one space, generally stored on that user's own PDS. A user has one permissioned repo per space it participates in. Abstractly, a permissioned repo offers a similar interface to a public [atproto repository](https://atproto.com/specs/repository): a key/value mapping where keys are path names (a collection NSID and an rkey) and values are CBOR-encoded records. PDSes expose a CRUD interface for interacting with a user's permissioned repos.
 
 Each permissioned repo is summarized by a **commit**. A commit is a short, signed digest that allows a syncer to check whether its copy of a repo matches the source without resyncing it in its entirety.
 
@@ -362,7 +362,7 @@ If a given oplog response includes the last available operation that occurred to
 
 Sync is self-healing because its correctness rests on the set hash comparison rather than on receiving every operation. A missed operation is detected on a subsequent sync. A total disjunction in repository history is also recognizable, and is recovered from by syncing the repository contents in their entirety.
 
-The oplog is a transport optimization rather than a committed data structure. Its contents and history are not guaranteed, and a repo host may compact or drop it, retaining only a backfill window. It is also reset on account migration as a new repo host begins its oplog afresh and does not inherit the prior host's history. In such cases where a syncer that cannot find its `since` revision falls back to [full-state recovery](#full-state-recovery), which does not depend on the oplog.
+The oplog is a transport optimization rather than a committed data structure. Its contents and history are not guaranteed, and a repo host may compact or drop it, retaining only a backfill window. It is also reset on account migration, as a new repo host begins its oplog afresh and does not inherit the prior host's history. In any such case, a syncer that cannot find its `since` revision falls back to [full-state recovery](#full-state-recovery), which does not depend on the oplog.
 
 ### Full-state recovery
 
@@ -434,7 +434,7 @@ space:<spaceType>[?authority=<did>][&skey=<skey>][&collection=<nsid>...][&action
 A `read` grant confers two things:
 
 - access to the read and sync methods (`com.atproto.space.getRecord`, `listRecords`, `getBlob`, `getLatestCommit`, `getRepo`, `listRepoOps`) on the holder's own PDS, sufficient to read the holder's own repo in the space
-- access to `com.atproto.space.getDelegationToken` for that space, which an application exchanges for a space credential to read  any repo in the space
+- access to `com.atproto.space.getDelegationToken` for that space, which an application exchanges for a space credential to read any repo in the space
 
 `read_self` is the narrower grant. It confers access to the same read and sync methods, but only for the holder's **own** repo in the space, and it does **not** grant `getDelegationToken`. An application holding only `read_self` can read its user's own records but cannot reach the rest of the space. `read` implies `read_self`.
 
@@ -480,7 +480,7 @@ A `space:` scope is presented to the user on the OAuth consent screen and requir
 
 If a particular `authority` DID is specified in a scope, it should be presented to the user as the bidirectionally linked handle associated with the DID. If no handle bidirectionally validates, then the DID itself should be shown. An `authority` of `self` refers to the user's own account and needs no such presentation.
 
-A scope may request wild card access on both `did` and `type`. This is a very broad grant, and as such the consent screen should present such a scope with a prominent warning. 
+A scope may request wildcard access on both `authority` and `spaceType`. This is a very broad grant, and as such the consent screen should present such a scope with a prominent warning. 
 
 ### Permission sets
 
@@ -595,7 +595,7 @@ The app evaluates the request against whatever application-layer state it mainta
 
 ## Considerations
 
-This section is non-normative. It discusses how permissioned data interacts with concerns that span the whole protocol. The short answer to most of them is that permissioned data behaves much like public atproto, because it deliberately keeps the same shape: DID-based authority, per-user repositories, lexicon-typed records, and applications that crawl repos to build views. 
+This section is non-normative. It discusses how permissioned data interacts with concerns that span the whole protocol. The short answer to most of them is that permissioned data behaves much like public broadcast, because it deliberately keeps the same shape: DID-based authority, per-user repositories, lexicon-typed records, and applications that crawl repos to build views.
 
 ### Moderation
 
