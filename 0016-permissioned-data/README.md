@@ -4,7 +4,7 @@
 
 For discussion, see the [community forum](https://discourse.atprotocol.community/t/early-permissioned-data-proposal-draft-feedback/923).
 
-For a friendlier introduction to the problem space and deeper analysis of design decisions made along the way, see the [perrmissioned data diary](https://dholms.leaflet.pub/) blob posts.
+For a friendlier introduction to the problem space and deeper analysis of design decisions made along the way, see the [permissioned data diary](https://dholms.leaflet.pub/) blog posts.
 
 ## Introduction
 
@@ -80,9 +80,9 @@ at://{spaceDid}/space/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
 | `collection` | NSID | Record collection |
 | `rkey` | string | Record key |
 
-Permissioned data reuses the `at://` scheme rather than defining its own. The literal `space` segment sits where a collection NSID appears in a public atproto URI, so a permissioned URI is distinguished from a public one by that marker in the first path segment under the authority DID. This is always differentiable as an NSID always has at least two `.`s.
+Permissioned data reuses the `at://` scheme rather than defining its own. The literal `space` segment sits where a collection NSID appears in a public atproto URI, so a permissioned URI is distinguished from a public one by that marker in the first path segment under the authority DID. The two are never ambiguous as a public collection is an NSID, which always contains at least two `.`s, whereas the `space` marker contains none.
 
-All segments `rkey` are necessary to identify a **permissioned record**. The leading segments through `skey` may be used to reference a **space**:
+All segments through `rkey` are necessary to identify a **permissioned record**. The leading segments through `skey` may be used to reference a **space**:
 
 ```
 Space:  at://{spaceDid}/space/{spaceType}/{skey}
@@ -357,7 +357,7 @@ To do so, a syncer enumerates the repo's structure (paths → CIDs) with `com.at
 
 ### Blob sync
 
-Blobs referenced by permissioned records are stored on the authoring repo's host and fetched via `com.atproto.space.getBlob` with the space credential. 
+Blobs referenced by permissioned records are stored on the authoring repo's host and fetched via `com.atproto.space.getBlob` with the relevant space credential. 
 
 ### Write notifications
 
@@ -574,3 +574,41 @@ When a space's `policy` is `managing-app`, the space authority defers to the spa
 Unlike the other `simplespace` methods, `checkUserAccess` is served by the `managingApp`, not the PDS. The authority calls it with itself as `iss` and the `managingApp`'s service identifier as `aud`, so the app can verify the call genuinely originates from the space's authority. It passes the space, the requesting user, and the requesting client (the **attested** `client_id`, if any), and the managing app returns whether to authorize.
 
 The app evaluates the request against whatever application-layer state it maintains (e.g. follower graphs, paid-subscription status, join approvals) and returns its decision. The authority mints the credential only if the app authorizes and applies `appAccess` as usual.
+
+## Considerations
+
+This section is non-normative. It discusses how permissioned data interacts with concerns that span the whole protocol. The short answer to most of them is that permissioned data behaves much like public atproto, because it deliberately keeps the same shape: DID-based authority, per-user repositories, lexicon-typed records, and applications that crawl repos to build views. 
+
+### Moderation
+
+Moderation in public broadcast atproto is handled at various levels, including labeling and infrastructure takedowns. Every service in the network is able to, and must, moderate the data it hosts and serves according to its legal requirements, terms of service, and community guidelines. In addition, moderation services may publish public labels that applications and infrastructure providers can then act on.
+
+Permissioned data keeps this model, with the obvious difference that the data is not open, and therefore a moderation service cannot observe a space it has not been admitted to. A moderation service functions as just another reader. To label content in a space, a moderation service must hold a space credential like any other syncer, which means the space authority has admitted it under the same [access control](#access-control) rules.
+
+A moderation service should not publish public labels for records in permissioned spaces, as this leaks metadata about otherwise-private data. The public `com.atproto.label.subscribeLabels` endpoint is therefore a poor fit here. Instead, labelers may publish labels as records in a permissioned repo within the relevant space, keeping the labels inside the same access boundary as the content they describe.
+
+At the infrastructure level, familiar tools and processes apply. Each participant retains authority over their own repo and can delete their own records. A repo host can take down accounts or refuse to serve repos that it hosts. An application can filter records from the views that it serves.
+
+A space authority has an additional lever with no public analogue. Because reading requires a credential it issues, it can decline to issue one to a user and thereby cut off read access, or stop issuing credentials for the space entirely (see [space deletion](#space-deletion)). Some spaces may also include records with application-level semantics for restricting writes from moderated users.
+
+### Scaling
+
+The scaling story is expected to be similar to the public broadcast protocol. Data is partitioned per user across many hosts, no single node (at the hosting layer) holds an entire space, and applications may choose how much and which data they wish to index.
+
+The one major difference is the lack of relays. Applications sync permissioned repos directly from PDSes rather than relying on an intermediary service, which places additional load on PDSes. A few things make this more approachable.
+
+First, the sync protocol itself is significantly lighter-weight than public sync, as it does not carry the overhead of maintaining and transmitting the structural nodes of the MST.
+
+Second, sync load scales with the number of applications syncing a space, not the number of end users. An application serving many users pulls each repo once and fans it out to them from its own copy, which keeps the number of distinct syncers per repo relatively low.
+
+Finally, and relatedly, the sync APIs are not open to the public, so resource abuse is much easier to mitigate. Each sync method requires a space credential, which is generally issued only to a closed set of syncers, and can be correlated across requests to enforce rate limits and other controls.
+
+### Account lifecycle
+
+An account's participation in permissioned data is tied to the same DID and signing key as its public atproto identity. The lifecycle events that already exist, migration, key rotation, deactivation, and deletion, therefore all function the same way in the context of permissioned data.
+
+**Migration.** Moving a permissioned repo between hosts functions the same as migrating a public repository. The main difference is that a user has many permissioned repos rather than one, so account migration flows will need to enumerate and track all of an account's permissioned repos and the blobs associated with them.
+
+**Deactivation & deletion.** Deactivation and deletion function exactly as they do for [public broadcast](https://atproto.com/specs/account#hosting-status). If an account is deleted, downstream services are expected to delete all public and permissioned data associated with the account. If an account is deactivated, downstream services are expected to stop serving all public and permissioned data associated with it.
+
+**Identity & account events.** Applications currently learn about changes to an account's status or identity (such as its signing key and handle) via events on the firehose (`com.atproto.sync.subscribeRepos`). These same account updates apply to permissioned repos in exactly the same manner. This means an application that syncs only permissioned repos, and no public repositories, still needs to subscribe to a firehose to receive `#account` and `#identity` events. Future work may include an additional subscription endpoint that broadcasts only those two event types without the full stream of public repository commits.
