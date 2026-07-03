@@ -33,3 +33,5 @@ Please open issues and PRs to discuss the content.
 ## [0014: Service Auth Audience Revised](./0014-service-auth-revised/)
 
 ## [0015: JSON Event Stream Encoding](./0015-json-subscriptions/)
+
+## [0016: Permissioned Data](./0016-permissioned-data/)
