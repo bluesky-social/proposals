@@ -605,7 +605,7 @@ Moderation in public broadcast atproto is handled at various levels, including l
 
 Permissioned data keeps this model, with the obvious difference that the data is not open, and therefore a moderation service cannot observe a space it has not been admitted to. A moderation service functions as just another reader. To label content in a space, a moderation service must hold a space credential like any other syncer, which means the space authority has admitted it under the same [access control](#access-control) rules.
 
-A moderation service should not publish public labels for records in permissioned spaces, as this leaks metadata about otherwise-private data. The public `com.atproto.label.subscribeLabels` endpoint is therefore a poor fit here. Instead, labelers may publish labels as records in a permissioned repo within the relevant space, keeping the labels inside the same access boundary as the content they describe.
+A moderation service should not publish public labels for records that reside in permissioned spaces, as this leaks metadata about otherwise-private data. The public `com.atproto.label.subscribeLabels` endpoint is therefore a poor fit here. Instead, labelers may publish labels as records in a permissioned repo within the relevant space, keeping the labels inside the same access boundary as the content they describe.
 
 At the infrastructure level, familiar tools and processes apply. Each participant retains authority over their own repo and can delete their own records. A repo host can take down accounts or refuse to serve repos that it hosts. An application can filter records from the views that it serves.
 
