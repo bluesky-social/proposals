@@ -1,8 +1,8 @@
 # 0016 Permissioned Data
 
-*This is a draft proposal, not the final specification. Details, terminology, and behaviors are all likely to change.*
+*This is a proposal, not the final specification. Details, terminology, and behaviors are all likely to change.*
 
-For discussion, see the [community forum](https://discourse.atprotocol.community/t/early-permissioned-data-proposal-draft-feedback/923).
+For discussion, head to the [community forum](https://discourse.atprotocol.community/t/permissioned-data-proposal-discussion/946).
 
 For a friendlier introduction to the problem space and deeper analysis of design decisions made along the way, see the [permissioned data diary](https://dholms.leaflet.pub/) blog posts.
 
