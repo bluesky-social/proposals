@@ -6,6 +6,8 @@ For discussion, head to the [community forum](https://discourse.atprotocol.commu
 
 For a friendlier introduction to the problem space and deeper analysis of design decisions made along the way, see the [permissioned data diary](https://dholms.leaflet.pub/) blog posts.
 
+Current drafts of lexicons can be viewed on the [implementation branch](https://github.com/bluesky-social/atproto/pull/5187) in the atproto repo. Note that the implementation itself is still very much a work in progress.
+
 ## Introduction
 
 [AT Protocol](https://atproto.com) (atproto) is a foundation for building social applications on shared, user-owned data. While commonly referred to as a "protocol", atproto is actually a framework composed of several distinct protocols as well as a schema language. Atproto currently includes a data repository and sync protocol for public broadcast data.
