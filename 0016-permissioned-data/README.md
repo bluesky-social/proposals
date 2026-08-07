@@ -45,7 +45,7 @@ The permissioned data protocol provides **access control, not confidentiality**.
 - **Repo host**: a service that stores and serves users' permissioned repos.
 - **Space host**: a service that answers for a space as a whole, issuing credentials, enumerating writers, and routing notifications.
 - **Space authority**: the DID at the root of a space, which resolves to the space host and the key material for issuing credentials.
-- **Space credential**: a token issued by the space authority that grants read access to a space.
+- **Space credential**: a token issued by the space authority that grants read access to a space, DPoP-bound to the application it was issued to.
 - **Delegation token**: a token issued by a user's PDS that an application exchanges with a space authority for a space credential.
 - **Client attestation**: a token signed by an application's own client authentication key, proving the application's identity to a space authority. Required only when a space gates on client app identity.
 - **Syncer**: an application that keeps its own copy of a space in sync by pulling from repo hosts.
@@ -62,7 +62,7 @@ Each space is identified by three values:
 2. **space type**: an NSID describing the modality of the space
 3. **space key** (`skey`): a string distinguishing spaces of the same space type under the same space authority
 
-Reading or syncing a space requires a **space credential** signed by the declared signing key of the space authority. The space authority decides whether to issue one based on the requesting user and client application. The protocol does not define how that decision is made and carries no member list (see [Access Control](#access-control)). Spaces scale from a single user's personal data (e.g. bookmarks) to communities of millions of users.
+Reading or syncing a space requires a **space credential** signed by the declared signing key of the space authority, [DPoP-bound](#dpop-binding) to the application holding it. The space authority decides whether to issue one based on the requesting user and client application. The protocol does not define how that decision is made and carries no member list (see [Access Control](#access-control)). Spaces scale from a single user's personal data (e.g. bookmarks) to communities of millions of users.
 
 ### Addressing
 
@@ -153,6 +153,8 @@ Reading a space is gated by a **space credential** issued by the space authority
 
 The delegation token is always required. The client attestation is required only when a space gates on client app identity. An application obtains a credential by getting a delegation token from a user's PDS, then presenting that token (together with its client attestation, if needed) to the space authority in exchange for a credential. The authority decides whether to issue the credential. The protocol does not define the decision procedure (the policies of the PDS's space-management implementation are described under [`simplespace`](#required-pds-space-management-simplespace)).
 
+A space credential is a whole-space capability presented to many independent hosts, so it is [DPoP-bound](#dpop-binding) to the application it was issued to rather than being a bearer token.
+
 Some spaces do not require a client attestation. This can be detected by querying the space configuration, or by simply making a request for a credential without an attestation and seeing whether an error is returned.
 
 ### Delegation token
@@ -221,6 +223,7 @@ A space credential resembles a [space delegation token](#delegation-token), diff
 - The `typ` field in the header is set to `atproto-space-credential+jwt`.
 - It is signed by the space authority rather than the user.
 - It has no `aud`: it is presented to any repo host serving a repo in the space, not to a single recipient.
+- It carries a `cnf` claim binding it to a key held by the application.
 
 Example JWT header and payload (before base64url encoding and signing):
 
@@ -233,6 +236,9 @@ Example JWT header and payload (before base64url encoding and signing):
 {
   "iss": "did:example:space_did", // Space authority DID
   "sub": "at://did:example:space_did/space/com.example.space_type/space_key", // Space the credential reads
+  "cnf": {
+    "jkt": "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I" // JWK thumbprint of the bound key
+  },
   "iat": 1738368000, // Issued-at (unix seconds)
   "exp": 1738375200, // iat + 7200 (2 hours)
   "jti": "9f8e7d6c5b4a3210fedcba9876543210" // random nonce
@@ -242,6 +248,30 @@ Example JWT header and payload (before base64url encoding and signing):
 
 The signature for the space credential is computed using the regular JWT process, using the space authority's signing key.
 
+### DPoP binding
+
+A credential provides access to a whole space. As a bearer token, a credential would become a shared secret: a host given a credential in order to serve one repo could turn around and replay it against every other host in the space, to sync a repo that it should not have necessarily access to. Therefore, each space credential is bound at issuance to a key held by the syncer, and each request carries a proof signed by that key naming the host it is addressed to. 
+
+The construction is [DPoP](https://www.rfc-editor.org/rfc/rfc9449), the same binding atproto OAuth requires on every authenticated request, with a credential from the space authority in place of an access token.
+
+The application generates a keypair and passes the [JWK thumbprint](https://www.rfc-editor.org/rfc/rfc7638) of the public key as the `dpopJkt` parameter of `getSpaceCredential`. The authority copies it into the credential's `cnf.jkt` (RFC 9449 §6.1). Nothing needs to be published or registered. The key may be ephemeral, since losing it costs only a new call to `getSpaceCredential`. 
+
+The credential is then presented under the `DPoP` scheme with a proof, exactly as an access token is:
+
+```
+GET /xrpc/com.atproto.space.getRepo?space=at%3A%2F%2F...&repo=did%3Aplc%3A... HTTP/1.1
+Host: pds.example.com
+Authorization: DPoP eyJ0eXAiOiJhdHByb3RvLXNwYWNlLWNyZWRlbnRpYWwrand0... // the space credential
+DPoP: eyJ0eXAiOiJkcG9wK2p3dCIsImFsZyI6IkVTMjU2Iiwiandr...               // the DPoP proof
+```
+
+A host verifies the proof per RFC 9449: 
+- verify the signature against the `jwk` in its own header
+- verify that the thumbprint of that `jwk` matches `cnf.jkt` 
+- verify that `ath` is the hash of the presented credential
+- verify that `htm` and `htu` match the request as received
+- verify that `iat` is recent and `jti` unseen 
+ 
 ### Credential flow
 
 ```
@@ -261,8 +291,8 @@ The signature for the space credential is computed using the regular JWT process
 
 1. The user authorizes the application via OAuth.
 2. The application calls `com.atproto.space.getDelegationToken` on the user's PDS, receiving a delegation token.
-3. The application presents the delegation token to the space authority via `com.atproto.space.getSpaceCredential`, adding its own client attestation if the space gates on client app identity. The authority verifies what it received and, on authorization, returns a space credential.
-4. The application reads the repo from each member's repo host with the credential.
+3. The application presents the delegation token to the space authority via `com.atproto.space.getSpaceCredential`, along with the `dpopJkt` thumbprint of the key to bind the credential to, adding its own client attestation if the space gates on client app identity. The authority verifies what it received and, on authorization, returns a space credential bound to that key.
+4. The application reads the repo from each member's repo host with the credential and a [DPoP proof](#dpop-binding) addressed to that host.
 
 An application serving several users of a space does not necessarily need to maintain a space credential for each user. It may obtain its credential using any one user's session. When it loses all OAuth sessions for a space, it can no longer renew the credential and loses access.
 
