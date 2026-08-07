@@ -155,7 +155,7 @@ The delegation token is always required. The client attestation is required only
 
 A space credential is a whole-space capability presented to many independent hosts, so it is [DPoP-bound](#dpop-binding) to the application it was issued to rather than being a bearer token.
 
-Some spaces do not require a client attestation. This can be detected by querying the space configuration, or by simply making a request for a credential without an attestation and seeing whether an error is returned.
+Some spaces do not require a client attestation. This can be communicated at the application layer or be detected by simply making a request for a credential without an attestation and seeing whether an error is returned.
 
 ### Delegation token
 
@@ -244,7 +244,6 @@ Example JWT header and payload (before base64url encoding and signing):
   "jti": "9f8e7d6c5b4a3210fedcba9876543210" // random nonce
 }
 ```
-
 
 The signature for the space credential is computed using the regular JWT process, using the space authority's signing key.
 
@@ -368,9 +367,9 @@ A permissioned repo may be serialized to a [CAR file](https://dasl.ing/car.html)
 The CAR header declares **two roots**, in order:
 
 1. the **signed commit** — the [`signedCommit`](#commit-signature) block described above
-2. the **index** — a [DRISL](https://dasl.ing/drisl.html) (DAG-CBOR) map from `"{collection}/{rkey}"` to the record's CID, with keys in lexicographic order
+2. the **index** — a [DRISL](https://dasl.ing/drisl.html) (DAG-CBOR) map from `"{collection}/{rkey}"` to the record's CID, with keys in canonical DAG-CBOR map order (shortest key first, then bytewise)
 
-The record blocks follow the two roots, and MUST appear in the same lexicographic order as their index entries. 
+The record blocks follow the two roots, and MUST appear in the same order as their index entries. 
 
 The serialization carries the information needed to reconstruct and verify the repo, and a consumer can validate it as a stream:
 
@@ -406,17 +405,21 @@ For the narrower case of *healing* a copy that has only slightly diverged, a syn
 
 ### Blob sync
 
-Blobs referenced by permissioned records are stored on the authoring repo's host and fetched via `com.atproto.space.getBlob` with the relevant space credential. 
+Blobs referenced by permissioned records are stored on the authoring repo's host and fetched via `com.atproto.space.getBlob` with the relevant space credential.
+
+A syncer may discovers which blobs a repo references through `com.atproto.space.listBlobs` or by discovering blob refs in synced records.
 
 ### Write notifications
 
 Write notifications inform syncers that a repo has advanced, so they can pull promptly instead of continuously polling for updates. A notification contains no record data, and states only that a given repo in a given space has reached a new revision.
 
-A syncer subscribes to notifications by calling `com.atproto.space.registerNotify`. When called on a space host, this method subscribes to writes for all repos in a space. Generally, syncers should subscribe to the space host for all write notifications from the space. However, it can also be called on particular repo hosts to receive notifications for specific repos. `registerNotify` is authenticated with a space credential. The service that was registered against should return the expiration time for the registration which may be longer than the expiration window of the space credential. 
+A syncer subscribes to notifications by calling `com.atproto.space.registerNotify`. When called on a space host, this method subscribes to writes for all repos in a space. Generally, syncers should subscribe to the space host for all write notifications from the space. However, it can also be called on particular repo hosts to receive notifications for specific repos.`registerNotify` is authenticated with a space credential. The service that was registered against should return the expiration time for the registration which may be longer than the expiration window of the space credential.
+
+A registration is withdrawn with `com.atproto.space.unregisterNotify`, or simply left to expire. 
 
 When a member writes, their PDS sends a `com.atproto.space.notifyWrite` to each endpoint registered for that repo. A PDS may not otherwise know which services are syncing the space, which is why the **space authority** registers itself as a subscriber on each repo host. Members notify the authority, and the authority forwards each notification to the endpoints registered with it for the space. Each notified syncer then pulls the updated repo directly from the relevant repo host. The authority only routes notifications and does not carry record data.
 
-A repo host does not need an explicit out-of-band registration step from the authority to know where to send these notifications. On the first write into a repo for a shared space (one whose authority is not the account's own DID), the repo host resolves the space authority's `#atproto_space_host` endpoint and **auto-registers** it as a subscriber for that repo. The authority may later un-register if it no longer wishes to be notified. (Personal-data spaces, where the authority is the account's own DID and the PDS plays both roles, need no such registration.)
+A repo host does not need an explicit out-of-band registration step from the authority to know where to send these notifications. On the first write into a repo for a shared space (one whose authority is not the account's own DID), the repo host resolves the space authority's `#atproto_space_host` endpoint and **auto-registers** it as a subscriber for that repo. Personal-data spaces, where the authority is the account's own DID and the PDS plays both roles, need no such registration.
 
 Notifications are **best-effort** and are not required for eventual consistency. If a notification is dropped, the affected repo is caught up by a later write's notification, or by a periodic sweep by the syncer. A sweep may be done over the [writer set](#the-sync-boundary-writer-set). `com.atproto.space.listRepos` returns each repo's current `rev`, so a syncer can compare those revisions against the revisions it last pulled and re-sync only the repos that have advanced, rather than polling each repo individually.
 
@@ -434,9 +437,11 @@ The writer set is what the authority *claims*, and is not itself authoritative f
 
 A space may be deleted by its authority. The authority stops issuing credentials and no longer answers for the space. The authority also deletes its own repo in the space. 
 
-The authority then notifies registered syncers and known repo hosts of participating members with `com.atproto.space.notifySpaceDeleted`, over the same best-effort path as write notifications. 
+The authority then notifies the syncers registered for the space with `com.atproto.space.notifySpaceDeleted`, over the same best-effort path as write notifications. 
 
-A **syncer** should delete every copy of the space's data it holds, both the repos it pulled and any derived state, as it is no longer authorized to retain them. A **repo host** should instead flag the member's repo as belonging to a deleted space rather than erase it. The data is the user's own, so the repo host decides how and whether to surface it to the user (e.g. an export, a grace period) before garbage-collecting.
+A **syncer** should delete every copy of the space's data it holds, both the repos it pulled and any derived state, as it is no longer authorized to retain them. A syncer that misses the notification learns the space is gone on its next credential renewal. The authority should answer `getSpaceCredential` for a deleted space with an explicit `SpaceDeleted` error. A renewal that fails for any other reason says nothing about the space, and the syncer retains its copy.
+
+Members' repo hosts are not notified on deletion. A member's records are the member's own data, and deletion of the space does not entitle the authority to delete all data in it. The records simply become unreadable to everyone but the member's own account. The space's deletion may be surfaced by the application which can aid the user in cleaning up no longer used data.
 
 ## OAuth scopes
 
@@ -461,11 +466,11 @@ space:<spaceType>[?authority=<did>][&skey=<skey>][&collection=<nsid>...][&action
 
 ### Read access
 
-`read` is all-or-nothing at the space boundary. There is no partial, per-record, or per-author whole-space read grant.
+Read access is all-or-nothing at the space boundary. There is no partial, per-record, per-collection, or per-author read grant.
 
 A `read` grant confers two things:
 
-- access to the read and sync methods (`com.atproto.space.getRecord`, `listRecords`, `getBlob`, `getLatestCommit`, `getRepo`, `listRepoOps`) on the holder's own PDS, sufficient to read the holder's own repo in the space
+- access to the read and sync methods (`com.atproto.space.getRecord`, `listRecords`, `getBlob`, `listBlobs`, `getLatestCommit`, `getRepo`, `listRepoOps`) on the holder's own PDS, sufficient to read the holder's own repo in the space
 - access to `com.atproto.space.getDelegationToken` for that space, which an application exchanges for a space credential to read any repo in the space
 
 `read_self` is the narrower grant. It confers access to the same read and sync methods, but only for the holder's **own** repo in the space, and it does **not** grant `getDelegationToken`. An application holding only `read_self` can read its user's own records but cannot reach the rest of the space. `read` implies `read_self`.
@@ -478,8 +483,8 @@ A request is authorized by a grant when its target space matches the grant's `(a
 
 **Record operations** are governed by `action`:
 
-- `read` covers every repo in the space and ignores `collection` since read access is all-or-nothing.
-- `read_self` covers only the holder's own repo and is constrained by `collection`. A `read` grant also satisfies a `read_self` request.
+- `read` covers every repo in the space and ignores `collection` since read access is all-or-nothing
+- `read_self` covers only the holder's own repo and similarly ignores `collection`. A `read` grant also satisfies a `read_self` request.
 - `create`, `update`, and `delete` act on a specific record, so they are additionally constrained by `collection`
 
 Omitting `action` grants `read`, `create`, `update`, and `delete` (`read` is inclusive of `read_self`).
@@ -499,7 +504,7 @@ The protocol does not enumerate what each `manage` verb permits, because space m
 - `space:com.example.bookmarks`: the user's own bookmarks space, with read access and write access to the collections its declaration lists. `authority` defaults to `self`, so this is the typical grant for personal data.
 - `space:com.atmoboards.forum?authority=*`: every `com.atmoboards.forum` space the user is in under any authority, with read access for the entire space and write access to the collections the forum's declaration lists (`com.atmoboards.thread`, `com.atmoboards.reply`). This is the typical grant for a forum client, which reads forums hosted by others.
 - `space:com.atmoboards.forum?authority=*&action=read`: the same spaces, read-only. No `collection` is needed because `read` is not constrained by collection.
-- `space:com.atmoboards.forum?authority=*&action=read_self&collection=*`: read-only, and only the user's own repo in those forums. Suitable for a personal export or backup tool that should not see other members' posts. Note that `collection=*` is required to read all records (not just those declared in the Lexicon).
+- `space:com.atmoboards.forum?authority=*&action=read_self`: read-only, and only the user's own repo in those forums. Suitable for a personal export or backup tool that should not see other members' posts.
 - `space:com.atmoboards.forum?authority=*&collection=*`: read access plus write access to every collection, not only the declared ones.
 - `space:com.atmoboards.forum?authority=did:plc:abc123&skey=default&collection=com.atmoboards.thread&action=create&action=update`: create and update `com.atmoboards.thread` records in the forum keyed `default` under authority `did:plc:abc123`.
 - `space:com.atmoboards.forum?authority=*&action=read_self&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with read access, but no record-write access. 
@@ -556,12 +561,12 @@ This grouping describes kinds of methods, not separate services. A single servic
 
 | Method | Role | Type | Auth | Description |
 |---|---|---|---|---|
-| `getSpace` | host | query | space credential | Describe a space, including an open-union `config` carrying host-specific configuration. |
 | `getSpaceCredential` | host | procedure | delegation token (+ client attestation) | Exchange a delegation token for a space credential. A client attestation is also required when the space gates on client app identity. |
 | `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `hash`. |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
 | `getBlob` | repo | query | OAuth / space credential | Fetch a blob by CID. |
+| `listBlobs` | repo | query | OAuth / space credential | List the blob CIDs referenced by records in a repo. |
 | `getLatestCommit` | repo | query | OAuth / space credential | The current signed [commit](#commit-signature) for a repo. |
 | `getRepo` | repo | query | OAuth / space credential | Download a whole repo as a [serialized CAR](#repo-serialization) for full-state backfill. |
 | `listRepoOps` | repo | query | OAuth / space credential | Primary sync mechanism. A repo's [operation log](#incremental-sync) since a given revision, inlining record values by default. Set `excludeValues` for metadata-only entries. |
@@ -571,9 +576,10 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `deleteRecord` | pds | procedure | OAuth | Delete a record. |
 | `applyWrites` | pds | procedure | OAuth | Apply a batch of creates, updates, and deletes to one repo atomically. |
 | `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in. |
-| `registerNotify` | repo/host | procedure | space credential | Register an endpoint to be notified of writes. On the space host, subscribes to the whole space. On a repo host with a `repo`, subscribes to that repo. |
+| `registerNotify` | repo/host | procedure | space credential | Register a service to be notified of writes. On the space host, subscribes to the whole space. On a repo host with a `repo`, subscribes to that repo. |
+| `unregisterNotify` | repo/host | procedure | space credential | Withdraw a `registerNotify` registration. |
 | `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
-| `notifySpaceDeleted` | syncer/repo | procedure | service auth | Notify that a space was deleted. Sent by the authority to members and registered syncers. |
+| `notifySpaceDeleted` | syncer | procedure | service auth | Notify that a space was deleted and its data should be dropped. Sent by the authority to the syncers registered for the space. |
 
 ## Required PDS space management: `simplespace`
 
@@ -583,20 +589,21 @@ The protocol does not specify how spaces are created or how an authority decides
 
 `simplespace` is neither the only permitted implementation nor a privileged one. It is simply the one that PDSs are required to support. Other space types may define their own management implementations and are full protocol participants, but they are hosted on bespoke space services rather than on the PDS.
 
-All simplespace methods are called with an OAuth credential with the relevant `manage` scope.
+The management procedures are called with an OAuth credential with the relevant `manage` scope. The read queries require only read access: `getSpace` accepts an OAuth `read_self` grant or a space credential, and `listMembers` accepts a `read_self` grant.
 
 | Method | Type | Description |
 |---|---|---|
 | `createSpace` | procedure | Create a space (caller becomes the authority) |
 | `updateSpace` | procedure | Update config (more details below) |
 | `deleteSpace` | procedure | Delete the space (see [Space deletion](#space-deletion)). |
+| `getSpace` | query | Describe a space and its configuration. |
 | `addMember` | procedure | Add a member (by DID) to view the space. |
 | `removeMember` | procedure | Remove a member (by DID). |
 | `listMembers` | query | List the current members of a space. |
 
 ### Configuration
 
-`simplespace` spaces can be further configured along a few dimensions. This configuration is updated through `updateSpace` and is surfaced through `com.atproto.space.getSpace`.
+`simplespace` spaces can be further configured along a few dimensions. This configuration is updated through `updateSpace` and is surfaced through `getSpace`.
 
 | Field | Values | Description |
 |---|---|---|
@@ -605,6 +612,8 @@ All simplespace methods are called with an OAuth credential with the relevant `m
 | `managingApp` | service identifier (DID + fragment) | Used to route application requests, and as the access check target in `managing-app` mode. |
 
 A user must be authorized by the `policy` **and** their app by `appAccess` for a credential to be minted. A syncing app needs a valid delegation token regardless.
+
+Both the `policy` and `appAccess` fields are open unions at the schema layer. A host MUST reject values it does not implement at `createSpace` / `updateSpace` time.
 
 **Policy** decides per-user authorization:
 - `member-list` (default): authorize requesters present on the member list.
@@ -616,8 +625,6 @@ A user must be authorized by the `policy` **and** their app by `appAccess` for a
 - `#allowList`: only the apps named in `allowed` may access the space. The authority evaluates the list against the **attested** `client_id` (the `iss` of the verified client attestation), so it is enforceable rather than advisory.
 
 ### The managing app
-
-Spaces may list a `managingApp`. Any account with access to the space can read the selected managing app in the space config through `com.atproto.space.getSpace`. This endpoint may be used to route certain application-level requests that cannot be handled by a generic PDS implementation, such as join requests. Calls to managing apps are generally authenticated using service auth tokens.
 
 When a space's `policy` is `managing-app`, the space authority defers to the space's `managingApp` at mint time by calling `com.atproto.simplespace.checkUserAccess`. 
 
@@ -657,7 +664,7 @@ Finally, and relatedly, the sync APIs are not open to the public, so resource ab
 
 An account's participation in permissioned data is tied to the same DID and signing key as its public atproto identity. The lifecycle events that already exist, migration, key rotation, deactivation, and deletion, therefore all function the same way in the context of permissioned data.
 
-**Migration.** Moving a permissioned repo between hosts functions the same as migrating a public repository. The main difference is that a user has many permissioned repos rather than one, so account migration flows will need to enumerate and track all of an account's permissioned repos and the blobs associated with them.
+**Migration.** Moving a permissioned repo between hosts functions the same as migrating a public repository. The main difference is that a user has many permissioned repos rather than one, so account migration flows will need to enumerate and track all of an account's permissioned repos (via `listSpaces`) and the blobs associated with them (via `listBlobs`).
 
 **Deactivation & deletion.** Deactivation and deletion function exactly as they do for [public broadcast](https://atproto.com/specs/account#hosting-status). If an account is deleted, downstream services are expected to delete all public and permissioned data associated with the account. If an account is deactivated, downstream services are expected to stop serving all public and permissioned data associated with it.
 
