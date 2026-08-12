@@ -254,7 +254,7 @@ A credential provides access to a whole space. As a bearer token, a credential w
 
 The construction is [DPoP](https://www.rfc-editor.org/rfc/rfc9449), the same binding atproto OAuth requires on every authenticated request, with a credential from the space authority in place of an access token.
 
-The application generates a keypair and passes the [JWK thumbprint](https://www.rfc-editor.org/rfc/rfc7638) of the public key as the `dpopJkt` parameter of `getSpaceCredential`. The authority copies it into the credential's `cnf.jkt` (RFC 9449 §6.1). Nothing needs to be published or registered. The key may be ephemeral, since losing it costs only a new call to `getSpaceCredential`. 
+The application generates a keypair and passes the [JWK thumbprint](https://www.rfc-editor.org/rfc/rfc7638) of the public key as the `dpopJkt` parameter of `getSpaceCredential`. The authority copies it into the credential's `cnf.jkt` (RFC 9449 §6.1). Nothing needs to be published or registered. The application should generate a new keypair for each space credential. The private key need only be retained for the lifetime of the space credential and should be discarded when the credential expires.
 
 The credential is then presented under the `DPoP` scheme with a proof, exactly as an access token is:
 
