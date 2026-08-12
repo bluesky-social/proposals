@@ -372,7 +372,9 @@ A commit is then produced as follows:
 
 1. Generate `ikm`, 32 fresh random bytes. A new `ikm` is generated for each reader the commit is served to.
 2. Compute `sig = sign(ctx)` with the user's signing key. The signed message only contains the space, author DID, revision and ikm, not the current repository hash. 
-3. Compute `mac = HMAC-SHA256(HKDF-SHA256(ikm, ctx), hash)`, binding the repository hash to this commit's context.
+3. Compute `mac = HMAC-SHA256(HKDF-Expand(ikm, ctx, 32), hash)`, binding the repository hash to this commit's context.
+
+`HKDF-Expand` is the expand step of HKDF-SHA256 ([RFC 5869](https://www.rfc-editor.org/rfc/rfc5869) §2.3): the 32-byte `ikm` is used directly as the pseudorandom key with `ctx` as the `info` input. There is no extract step because `ikm` is already uniformly random.
 
 A reader verifies `sig` against the user's signing key (authenticity), then recomputes `mac` and compares (integrity). Because the digest is bound by a *symmetric* MAC keyed from the public `ikm`, anyone holding the commit can compute a valid `mac` for any `hash`, so a rebroadcast commit cannot prove what the user wrote, only that they signed a `(space, author, rev, ikm)` context.
 
@@ -384,7 +386,7 @@ The signed commit (`com.atproto.space.defs#signedCommit`):
 | `hash` | bytes | `sha256` of the LtHash state (32 bytes) |
 | `ikm` | bytes | per-signature nonce (32 random bytes) |
 | `sig` | bytes | `sign(ctx)` by the user's signing key |
-| `mac` | bytes | `HMAC-SHA256(HKDF-SHA256(ikm, ctx), hash)` |
+| `mac` | bytes | `HMAC-SHA256(HKDF-Expand(ikm, ctx, 32), hash)` |
 | `rev` | string | commit revision (TID), also bound into `ctx` |
 
 The `ver` field is fixed at `1` for this version of the protocol. It corresponds to the version carried in the `ctx` protocol tag (`atproto-space-v1`).
@@ -440,13 +442,13 @@ A syncer may discovers which blobs a repo references through `com.atproto.space.
 
 ### Write notifications
 
-Write notifications inform syncers that a repo has advanced, so they can pull promptly instead of continuously polling for updates. A notification contains no record data, and states only that a given repo in a given space has reached a new revision.
+Write notifications inform syncers that a repo has advanced, so they can pull promptly instead of continuously polling for updates. A notification contains no record data, and states only that a given repo in a given space has reached a new `rev` and `hash`.
 
 A syncer subscribes to notifications by calling `com.atproto.space.registerNotify`. When called on a space host, this method subscribes to writes for all repos in a space. Generally, syncers should subscribe to the space host for all write notifications from the space. However, it can also be called on particular repo hosts to receive notifications for specific repos.`registerNotify` is authenticated with a space credential. The service that was registered against should return the expiration time for the registration which may be longer than the expiration window of the space credential.
 
 A registration is withdrawn with `com.atproto.space.unregisterNotify`, or simply left to expire. 
 
-When a member writes, their PDS sends a `com.atproto.space.notifyWrite` to each endpoint registered for that repo. A PDS may not otherwise know which services are syncing the space, which is why the **space authority** registers itself as a subscriber on each repo host. Members notify the authority, and the authority forwards each notification to the endpoints registered with it for the space. Each notified syncer then pulls the updated repo directly from the relevant repo host. The authority only routes notifications and does not carry record data.
+When a member writes, their PDS sends a `com.atproto.space.notifyWrite` containing the repo's current `rev` and `hash` to each endpoint registered for that repo. A PDS may not otherwise know which services are syncing the space, which is why the **space authority** registers itself as a subscriber on each repo host. Members notify the authority, and the authority forwards each notification to the endpoints registered with it for the space. Each notified syncer then pulls the updated repo directly from the relevant repo host. The authority only routes notifications and does not carry record data.
 
 A repo host does not need an explicit out-of-band registration step from the authority to know where to send these notifications. On the first write into a repo for a shared space (one whose authority is not the account's own DID), the repo host resolves the space authority's `#atproto_space_host` endpoint and **auto-registers** it as a subscriber for that repo. Personal-data spaces, where the authority is the account's own DID and the PDS plays both roles, need no such registration.
 
@@ -607,7 +609,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in. |
 | `registerNotify` | repo/host | procedure | space credential | Register a service to be notified of writes. On the space host, subscribes to the whole space. On a repo host with a `repo`, subscribes to that repo. |
 | `unregisterNotify` | repo/host | procedure | space credential | Withdraw a `registerNotify` registration. |
-| `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
+| `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `hash`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
 | `notifySpaceDeleted` | syncer | procedure | service auth | Notify that a space was deleted and its data should be dropped. Sent by the authority to the syncers registered for the space. |
 
 ## Required PDS space management: `simplespace`
