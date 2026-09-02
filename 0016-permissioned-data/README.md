@@ -123,7 +123,7 @@ A space type NSID resolves to a **space type declaration**: a Lexicon definition
       "key": "any",
       "name": "AtmoBoards Forum",
       "name:lang": { "es": "Foro AtmoBoards", "ja": "AtmoBoards 掲示板" },
-      "collections": ["com.atmoboards.thread", "com.atmoboards.reply"]
+      "collections": ["com.atmoboards.thread", "com.atmoboards.reply", "org.example.reaction"]
     }
   }
 }
@@ -138,7 +138,11 @@ A space type NSID resolves to a **space type declaration**: a Lexicon definition
 | `name:lang` | map<lang, string> | no | Localized `name` values by language code. |
 | `collections` | array of NSID | yes | Collections clients should expect in a space of this type. |
 
-The `collections` field is the default `collection` set for a [`space:` scope](#oauth-scopes) of this type. However, ultimately any collection may be written to any space and is not constrained at the protocol level by the collections in a space type declaration.
+The `collections` field is the default `collection` set for a [`space:` permission](#oauth-scopes) for spaces of this type. This can impact which records can be read and written to by default, though clients may request broader permissions beyond this set. The `collections` field may *not* include a wildcard (`*`). As shown in the example above, the `collections` field may contain record types from any NSID domain, not only those under the same domain authority as the space type NSID.
+
+Note that all spaces may contain records of any type (any collection), not only those listed in the space type declaration.
+
+Space type declarations can be updated, and the default collection changes will be reflected in existing client OAuth sessions. See [OAuth Scopes](#oauth-scopes) section below.
 
 ### Space key (skey)
 
@@ -494,6 +498,8 @@ space:<spaceType>[?authority=<did>][&skey=<skey>][&collection=<nsid>...][&action
 `authority`, `spaceType`, and `skey` select **which spaces** the grant covers, matching the first three segments of a space URI. `action` (and `collection`) govern operations on the **records** in those spaces. `manage` governs operations on the **spaces themselves**.
 
 `authority` defaults to `self`, the granting user's own DID, so a bare `space:<spaceType>` grant covers only the user's own spaces of that type. Reaching spaces under other authorities (e.g. a shared forum anchored on an app or another user) requires naming that authority, or `authority=*` for any.
+
+Similar to permission set declarations (`permission-set` lexicon schemas), space type declarations can be updated at a later point, and the updated `collections` set will apply to any existing client OAuth sessions using the default set. This allows lexicon designers to introduce new record types without required users to go through a re-authorization flow.
 
 ### Read access
 
