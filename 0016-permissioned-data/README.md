@@ -22,7 +22,7 @@ This document specifies an additional data protocol for **permissioned data**, o
 - **Groups**: private forums, communities, group chats
 
 The permissioned data protocol shares the abstract shape of public broadcast. It retains DID-based authority, per-user repositories, lexicon-typed records, and the general flow of applications crawling PDSes to build views. However it has its own repository format, sync mechanism, addressing scheme, and resolution path. Public broadcast is built for open distribution (signed, archival, rebroadcastable) while the permissioned data protocol is built for party-to-party transmission within an access boundary.
- 
+
 The permissioned data protocol provides **access control, not confidentiality**. It is [not end-to-end encrypted](https://dholms.leaflet.pub/3meluqcwky22a). Services (both PDSes and authorized applications) can read the data they handle, which is required for server-side features such as search, indexing, notifications, aggregation, and moderation. E2EE is a separate concern that may be layered on top by an application and is out of scope in this proposal.
 
 ### Relationship to public broadcast
@@ -167,7 +167,7 @@ A **delegation token** proves that an application is acting on a user's behalf w
 
 A client app session can only request a delegation token for a space it has been authorized to access. The application must hold a covering [`space:` OAuth scope](#oauth-scopes) (specifically a `read` grant, which confers access to `getDelegationToken`).
 
-A delegation token is structurally similar to an atproto [service auth token](https://atproto.com/specs/xrpc), but it differs in a few ways that make it its own credential class rather than an interchangeable one: 
+A delegation token is structurally similar to an atproto [service auth token](https://atproto.com/specs/xrpc), but it differs in a few ways that make it its own credential class rather than an interchangeable one:
 - The `typ` field in the header is set to `atproto-space-delegation+jwt`.
 - It does not include an `lxm` claim.
 - It is bound to a target space through the `sub` claim.
@@ -214,7 +214,7 @@ A **client attestation** is a short-lived, single-use JWT that the application p
 }
 ```
 
-The authority verifies the attestation by resolving `iss` (the `client_id`) to the client's `client-metadata.json`, fetching its published JWKS (`jwks` or `jwks_uri`), and verifying the signature against the key in that JWKS identified by the attestation's `kid`. 
+The authority verifies the attestation by resolving `iss` (the `client_id`) to the client's `client-metadata.json`, fetching its published JWKS (`jwks` or `jwks_uri`), and verifying the signature against the key in that JWKS identified by the attestation's `kid`.
 
 ### Space credential
 
@@ -360,7 +360,7 @@ To **add** an element:
 2. Read those bytes as 1024 little-endian `uint16` lanes.
 3. Add each lane into the corresponding state lane, modulo 65536 (2^16, i.e. with wraparound)
 
-To **remove** an element, perform the same process, but subtract its lanes instead (modulo 65536). 
+To **remove** an element, perform the same process, but subtract its lanes instead (modulo 65536).
 
 Both operations are commutative, so the state depends only on the current set of records, not the order of writes. The empty repo's state is all zeroes.
 
@@ -385,7 +385,7 @@ ctx = "atproto-space-v1"            // fixed protocol tag
 A commit is then produced as follows:
 
 1. Generate `ikm`, 32 fresh random bytes. A new `ikm` is generated for each reader the commit is served to.
-2. Compute `sig = sign(ctx)` with the user's signing key. The signed message only contains the space, author DID, revision and ikm, not the current repository hash. 
+2. Compute `sig = sign(ctx)` with the user's signing key. The signed message only contains the space, author DID, revision and ikm, not the current repository hash.
 3. Compute `mac = HMAC-SHA256(HKDF-Expand(ikm, ctx, 32), hash)`, binding the repository hash to this commit's context.
 
 `HKDF-Expand` is the expand step of HKDF-SHA256 ([RFC 5869](https://www.rfc-editor.org/rfc/rfc5869) §2.3): the 32-byte `ikm` is used directly as the pseudorandom key with `ctx` as the `info` input. There is no extract step because `ikm` is already uniformly random.
@@ -414,7 +414,7 @@ The CAR header declares **two roots**, in order:
 1. the **signed commit** — the [`signedCommit`](#commit-signature) block described above
 2. the **index** — a [DRISL](https://dasl.ing/drisl.html) (DAG-CBOR) map from `"{collection}/{rkey}"` to the record's CID, with keys in canonical DAG-CBOR map order (shortest key first, then bytewise)
 
-The record blocks follow the two roots, and MUST appear in the same order as their index entries. 
+The record blocks follow the two roots, and MUST appear in the same order as their index entries.
 
 The serialization carries the information needed to reconstruct and verify the repo, and a consumer can validate it as a stream:
 
@@ -460,7 +460,7 @@ Write notifications inform syncers that a repo has advanced, so they can pull pr
 
 A syncer subscribes to notifications by calling `com.atproto.space.registerNotify`. When called on a space host, this method subscribes to writes for all repos in a space. Generally, syncers should subscribe to the space host for all write notifications from the space. However, it can also be called on particular repo hosts to receive notifications for specific repos.`registerNotify` is authenticated with a space credential. The service that was registered against should return the expiration time for the registration which may be longer than the expiration window of the space credential.
 
-A registration is withdrawn with `com.atproto.space.unregisterNotify`, or simply left to expire. 
+A registration is withdrawn with `com.atproto.space.unregisterNotify`, or simply left to expire.
 
 When a member writes, their PDS sends a `com.atproto.space.notifyWrite` containing the repo's current `rev` and `hash` to each endpoint registered for that repo. A PDS may not otherwise know which services are syncing the space, which is why the **space authority** registers itself as a subscriber on each repo host. Members notify the authority, and the authority forwards each notification to the endpoints registered with it for the space. Each notified syncer then pulls the updated repo directly from the relevant repo host. The authority only routes notifications and does not carry record data.
 
@@ -480,9 +480,9 @@ The writer set is what the authority *claims*, and is not itself authoritative f
 
 ## Space deletion
 
-A space may be deleted by its authority. The authority stops issuing credentials and no longer answers for the space. The authority also deletes its own repo in the space. 
+A space may be deleted by its authority. The authority stops issuing credentials and no longer answers for the space. The authority also deletes its own repo in the space.
 
-The authority then notifies the syncers registered for the space with `com.atproto.space.notifySpaceDeleted`, over the same best-effort path as write notifications. 
+The authority then notifies the syncers registered for the space with `com.atproto.space.notifySpaceDeleted`, over the same best-effort path as write notifications.
 
 A **syncer** should delete every copy of the space's data it holds, both the repos it pulled and any derived state, as it is no longer authorized to retain them. A syncer that misses the notification learns the space is gone on its next credential renewal. The authority should answer `getSpaceCredential` for a deleted space with an explicit `SpaceDeleted` error. A renewal that fails for any other reason says nothing about the space, and the syncer retains its copy.
 
@@ -554,17 +554,17 @@ The protocol does not enumerate what each `manage` verb permits, because space m
 - `space:com.atmoboards.forum?authority=*&action=read_self`: read-only, and only the user's own repo in those forums. Suitable for a personal export or backup tool that should not see other members' posts.
 - `space:com.atmoboards.forum?authority=*&collection=*`: read access plus write access to every collection, not only the declared ones.
 - `space:com.atmoboards.forum?authority=did:plc:abc123&skey=default&collection=com.atmoboards.thread&action=create&action=update`: create and update `com.atmoboards.thread` records in the forum keyed `default` under authority `did:plc:abc123`.
-- `space:com.atmoboards.forum?authority=*&action=read_self&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with read access, but no record-write access. 
-- `space:com.atmoboards.forum?authority=*&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with full read/write access to records in the space. 
+- `space:com.atmoboards.forum?authority=*&action=read_self&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with read access, but no record-write access.
+- `space:com.atmoboards.forum?authority=*&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with full read/write access to records in the space.
 - `space:*?authority=did:plc:abc123`: read every space under authority `did:plc:abc123`, any type.
 
 ### Consent
 
-A `space:` scope is presented to the user on the OAuth consent screen and requires user-legible text. Each space `type` resolves to a [space type declaration](#space-type-declarations). The consent screen then displays the declaration's `name` (e.g. "AtmoBoards Forum") in place of the raw NSID. 
+A `space:` scope is presented to the user on the OAuth consent screen and requires user-legible text. Each space `type` resolves to a [space type declaration](#space-type-declarations). The consent screen then displays the declaration's `name` (e.g. "AtmoBoards Forum") in place of the raw NSID.
 
 If a particular `authority` DID is specified in a scope, it should be presented to the user as the bidirectionally linked handle associated with the DID. If no handle bidirectionally validates, then the DID itself should be shown. An `authority` of `self` refers to the user's own account and needs no such presentation.
 
-A scope may request wildcard access on both `authority` and `spaceType`. This is a very broad grant, and as such the consent screen should present such a scope with a prominent warning. 
+A scope may request wildcard access on both `authority` and `spaceType`. This is a very broad grant, and as such the consent screen should present such a scope with a prominent warning.
 
 ### Permission sets
 
@@ -576,7 +576,7 @@ Space permissions can also be bundled, usually with more user-friendly verbiage,
   "title": "AtmoBoards",
   "detail": "Read and post in your AtmoBoards forums",
   "permissions": [
-    { 
+    {
       "type": "permission",
       "resource": "space",
       "spaceType": "com.atmoboards.forum",
@@ -673,7 +673,7 @@ Both the `policy` and `appAccess` fields are open unions at the schema layer. A 
 
 ### The managing app
 
-When a space's `policy` is `managing-app`, the space authority defers to the space's `managingApp` at mint time by calling `com.atproto.simplespace.checkUserAccess`. 
+When a space's `policy` is `managing-app`, the space authority defers to the space's `managingApp` at mint time by calling `com.atproto.simplespace.checkUserAccess`.
 
 Unlike the other `simplespace` methods, `checkUserAccess` is served by the `managingApp`, not the PDS. The authority calls it with itself as `iss` and the `managingApp`'s service identifier as `aud`, so the app can verify the call genuinely originates from the space's authority. It passes the space, the requesting user, and the requesting client (the **attested** `client_id`, if any), and the managing app returns whether to authorize.
 
