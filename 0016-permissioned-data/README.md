@@ -149,13 +149,13 @@ The **space key** (`skey`) is a string distinguishing spaces of the same type un
 Reading a space is gated by a **space credential** issued by the space authority. Each credential is bound to a key held by the application, which proves possession of that key via [DPoP](#dpop-binding) when obtaining and using the credential. The authority issues one based on two axes:
 
 - **which user** is being acted for: established by a **delegation token** minted by the user's PDS
-- **which application** is acting: established by a **client attestation** signed by the application itself
+- **which application** is acting: established by an optional **client attestation** signed by the application itself
 
 The delegation token and a DPoP proof are always required. The client attestation is required only when a space gates on client app identity. An application obtains a credential by getting a delegation token from a user's PDS, then presenting that token and a DPoP proof (together with its client attestation, if needed) to the space authority in exchange for a credential. The authority decides whether to issue the credential. The protocol does not define the decision procedure (the policies of the PDS's space-management implementation are described under [`simplespace`](#required-pds-space-management-simplespace)).
 
 A space credential is a whole-space capability presented to many independent hosts, so it is [DPoP-bound](#dpop-binding) to the application it was issued to rather than being a bearer token.
 
-Some spaces do not require a client attestation. This can be communicated at the application layer or be detected by simply making a request for a credential without an attestation and seeing whether an error is returned.
+Some spaces do not require a client attestation. The requirement can be communicated at the application layer or be detected by simply making a request for a credential without an attestation and inspecting the returned error type.
 
 ### Delegation token
 
