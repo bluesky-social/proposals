@@ -98,7 +98,7 @@ A space's **authority** is the DID at the root of the space and the issuer of it
 A space authority is resolved through two entries in its DID document:
 
 - a **verification method** with id `#atproto_space`: the public key used to verify the space's credentials
-- a **service** entry with id `#atproto_space_host`: the endpoint of the space host
+- a **service** entry with id `#atproto_space_host`: the endpoint of the space host (with `AtprotoSpaceHost` type)
 
 Both entries are optional. When `#atproto_space` is absent, the space signing key falls back to the account's `#atproto` signing key. Similarly, when `#atproto_space_host` is absent, the space host falls back to the account's `#atproto_pds` service endpoint. An authority MAY instead publish the dedicated entries to point at distinct key material or a distinct host, and MAY set them to the same values as `#atproto` and `#atproto_pds` explicitly.
 
