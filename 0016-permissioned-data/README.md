@@ -372,12 +372,12 @@ The commit's `hash` is `sha256(state)`, a 32-byte digest of the 2048-byte buffer
 
 A user does not sign the digest directly since a signature over the content digest would be a rebroadcastable proof of what the user wrote in a private space. Instead the signature covers only random per-commit bytes, and the digest is bound to those bytes by a symmetric MAC. A reader in the sync flow gets full authenticity and integrity, but a leaked commit is deniable and proves nothing about its contents to a third party.
 
-Both the signature and the MAC are domain-separated by a single context string, `ctx`, built once and reused for both. `ctx` uses the variable-length-vector encoding from [TLS 1.3](https://www.rfc-editor.org/rfc/rfc8446) (§3.4). It is composed of a fixed protocol tag followed by each variable field length-prefixed with a big-endian `uint16`.
+Both the signature and the MAC are domain-separated by a single "context" bytestring, built once and reused for both. The context bytestring uses the variable-length-vector encoding from [TLS 1.3](https://www.rfc-editor.org/rfc/rfc8446) (§3.4). It is composed of a fixed protocol tag followed by each variable field length-prefixed with a big-endian `uint16`.
 
 Note: these length prefixes are big-endian, following the TLS convention for wire encodings. This is the opposite byte order from the little-endian lanes of the [commit digest](#commit-digest), which follows the LtHash reference construction. The two come from different specs and each keeps its native byte order.
 
 ```
-ctx = "atproto-space-v1"            // fixed protocol tag
+context = "atproto-space-v1"          // fixed protocol tag
    || uint16be(len(space))  || space  // space URI (at://authority/space/type/skey)
    || uint16be(len(author)) || author // author DID of the repo
    || uint16be(len(rev))    || rev    // commit revision (TID)
@@ -387,10 +387,10 @@ ctx = "atproto-space-v1"            // fixed protocol tag
 A commit is then produced as follows:
 
 1. Generate `ikm`, 32 fresh random bytes. A new `ikm` is generated for each reader the commit is served to.
-2. Compute `sig = sign(ctx)` with the user's signing key. The signed message only contains the space, author DID, revision and ikm, not the current repository hash.
-3. Compute `mac = HMAC-SHA256(HKDF-Expand(ikm, ctx, 32), hash)`, binding the repository hash to this commit's context.
+2. Compute `sig = sign(context)` with the user's signing key. The signed message only contains the space, author DID, revision and ikm, not the current repository hash.
+3. Compute `mac = HMAC-SHA256(HKDF-Expand(ikm, context, 32), hash)`, binding the repository hash to this commit's context.
 
-`HKDF-Expand` is the expand step of HKDF-SHA256 ([RFC 5869](https://www.rfc-editor.org/rfc/rfc5869) §2.3): the 32-byte `ikm` is used directly as the pseudorandom key with `ctx` as the `info` input. There is no extract step because `ikm` is already uniformly random.
+`HKDF-Expand` is the expand step of HKDF-SHA256 ([RFC 5869](https://www.rfc-editor.org/rfc/rfc5869) §2.3): the 32-byte `ikm` is used directly as the pseudorandom key with `context` as the `info` input. There is no extract step because `ikm` is already uniformly random.
 
 A reader verifies `sig` against the user's signing key (authenticity), then recomputes `mac` and compares (integrity). Because the digest is bound by a *symmetric* MAC keyed from the public `ikm`, anyone holding the commit can compute a valid `mac` for any `hash`, so a rebroadcast commit cannot prove what the user wrote, only that they signed a `(space, author, rev, ikm)` context.
 
@@ -401,11 +401,11 @@ The signed commit (`com.atproto.space.defs#signedCommit`):
 | `ver` | integer | commit format version, currently `1` |
 | `hash` | bytes | `sha256` of the LtHash state (32 bytes) |
 | `ikm` | bytes | per-signature nonce (32 random bytes) |
-| `sig` | bytes | `sign(ctx)` by the user's signing key |
-| `mac` | bytes | `HMAC-SHA256(HKDF-Expand(ikm, ctx, 32), hash)` |
-| `rev` | string | commit revision (TID), also bound into `ctx` |
+| `sig` | bytes | `sign(context)` by the user's signing key |
+| `mac` | bytes | `HMAC-SHA256(HKDF-Expand(ikm, context, 32), hash)` |
+| `rev` | string | commit revision (TID), also bound into `context` |
 
-The `ver` field is fixed at `1` for this version of the protocol. It corresponds to the version carried in the `ctx` protocol tag (`atproto-space-v1`).
+The `ver` field is fixed at `1` for this version of the protocol. It corresponds to the version carried in the `context` protocol tag (`atproto-space-v1`).
 
 ### Repo serialization
 
