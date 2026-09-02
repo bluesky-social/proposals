@@ -134,7 +134,7 @@ A space type NSID resolves to a **space type declaration**: a Lexicon definition
 | `type` | `"space"` | yes | Marks this as a space type declaration. Must be the `main` definition. |
 | `description` | string | no | Description of the space type for developers. Not shown to users. |
 | `key` | string | yes | Specifies the recommended space key type (similar to [record key types](https://atproto.com/specs/record-key#record-key-type-tid)) |
-| `name` | string | yes | Human-readable name for the space type, shown to users on consent screens. |
+| `name` | string | yes | Short human-readable name for the space type, shown to users on consent screens. |
 | `name:lang` | map<lang, string> | no | Localized `name` values by language code. |
 | `collections` | array of NSID | yes | Collections clients should expect in a space of this type. |
 
