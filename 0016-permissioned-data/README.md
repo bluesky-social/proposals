@@ -253,13 +253,15 @@ The signature for the space credential is computed using the regular JWT process
 
 ### DPoP binding
 
-A credential provides access to a whole space. As a bearer token, a credential would become a shared secret: a host given a credential in order to serve one repo could turn around and replay it against every other host in the space, to sync a repo that it should not have necessarily access to. Therefore, each space credential is bound at issuance to a key held by the syncer, and each request carries a proof signed by that key naming the host it is addressed to. 
+A credential provides access to a whole space. As a bearer token, a credential would become a shared secret: any repo host given a credential in order to serve one repo could turn around and replay it against every other repo host in the space, to sync a repo that it should not have necessarily have access to. Therefore, each space credential is bound at issuance to a key held by the syncer, and each request carries a proof signed by that key naming the host it is addressed to.
 
-The construction is [DPoP](https://www.rfc-editor.org/rfc/rfc9449), the same binding atproto OAuth requires on every authenticated request, with a credential from the space authority in place of an access token.
+The construction is [DPoP](https://www.rfc-editor.org/rfc/rfc9449), the same binding atproto OAuth requires on every authenticated request, with a credential from the space authority in place of an access token. DPoP server-provided nonces are not used.
 
-The application sends a DPoP proof in the `DPoP` header of its `getSpaceCredential` request. The authority MUST verify it per RFC 9449 and copy the [JWK thumbprint](https://www.rfc-editor.org/rfc/rfc7638) of its public key into the credential's `cnf.jkt`. The key does not need to be published or registered.
+The application sends a DPoP proof in the `DPoP` header of its `getSpaceCredential` request. The space host MUST verify it per RFC 9449 and copy the [JWK thumbprint](https://www.rfc-editor.org/rfc/rfc7638) of the space authority's own public key into the credential's `cnf.jkt`. The public key does not need to be published or registered.
 
-Example DPoP proof header and payload (before base64url encoding and signing):
+Instead of using the custom atproto `lxm` field (naming an XRPC endpoint NSID), the URL is included in `htu`. This URL must include the URI scheme, hostname, and path components, but not any query parameters or fragment parts.
+
+Example DPoP proof header and payload (before base64url encoding and signing) when requesting a space credential:
 
 ```json
 {
@@ -273,34 +275,42 @@ Example DPoP proof header and payload (before base64url encoding and signing):
   }
 }
 {
-  "jti": "e1c4a986c37d4f60a31c9c04e50b7ea2",
+  "jti": "e1c4a986c37d4f60a31c9c04e50b7ea2",   // client-generated random nonce
   "htm": "POST",
   "htu": "https://space.example.com/xrpc/com.atproto.space.getSpaceCredential",
-  "iat": 1738368000
+  "iat": 1738368000                            // issued-at timestamp
 }
 ```
 
-The proof has no `ath` claim because the delegation token is an authorization grant rather than an access token.
+The DPoP proof sent in the initial `getSpaceCredential` request should not include an `ath` claim binding to the delegation token. This is because the delegation is a single-use authorization grant, not an access token. The delegation token itself is included as a `Bearer` in the HTTP `Authorization` header:
 
-The application should generate a new keypair for each space credential. The private key need only be retained for the lifetime of the space credential and should be discarded when the credential expires.
+```
+GET /xrpc/com.atproto.space.getSpaceCredential HTTP/1.1
+Host: space-host.example.com
+Authorization: Bearer ogj8TJ3tUa4OxosQC1yxcfGzHg8... // the delegation token
+DPoP: 6c1nmaotxTIhcLxbIvGxY3vEOCujOpW45ztY7XKLKOH... // the DPoP proof
+```
 
-The credential is then presented under the `DPoP` scheme with a proof, exactly as an access token is:
+The application should generate a new DPoP keypair for each space credential. The private key need only be retained for the lifetime of the space credential and should be discarded when the credential expires or is deleted.
+
+When using the space credential to make authorized requests (for example, to fetch space repositories), the space credential is presented in `Authorization` using the `DPoP` scheme, bound to the DPoP proof using the `ath` claim like an access token would be:
 
 ```
 GET /xrpc/com.atproto.space.getRepo?space=at%3A%2F%2F...&repo=did%3Aplc%3A... HTTP/1.1
 Host: pds.example.com
-Authorization: DPoP eyJ0eXAiOiJhdHByb3RvLXNwYWNlLWNyZWRlbnRpYWwrand0... // the space credential
-DPoP: eyJ0eXAiOiJkcG9wK2p3dCIsImFsZyI6IkVTMjU2Iiwiandr...               // the DPoP proof
+Authorization: DPoP 9kQd4NLdmGxLmh8fp1ba0JyE6gHR0VwXG3... // the space credential
+DPoP: fmikIzejHjmgE8MLwrZQ4LgFCPR3uWLqQen7YqLbTewrZ797... // the DPoP proof
 ```
 
-A host MUST validate the proof per RFC 9449, including:
+A host MUST validate the DPoP proof per RFC 9449, including:
 
+- verify the `typ` (`dpop+jwt`) and `alg` fields
 - verify the signature against the `jwk` in its own header
 - verify that the thumbprint of that `jwk` matches `cnf.jkt` of the presented space credential
-- verify that `ath` is the hash of the presented credential
-- verify that `htm` and `htu` match the request as received
+- verify that `ath` is the base64url-encoded SHA-256 hash of the space credential
+- verify that `htm` (HTTP method) and `htu` (request URL) match the request as received
 - verify that `iat` is recent
-- verify that `jti` is present and unseen
+- verify that `jti` (random nonce) is present and has not been seen before
 
 ### Credential flow
 
