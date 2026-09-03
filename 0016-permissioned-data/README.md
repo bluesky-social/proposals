@@ -4,7 +4,7 @@
 
 For discussion, head to the [community forum](https://discourse.atprotocol.community/t/permissioned-data-proposal-discussion/946).
 
-For a friendlier introduction to the problem space and deeper analysis of design decisions made along the way, see the [permissioned data diary](https://dholms.leaflet.pub/) blog posts.
+For a friendlier introduction to the problem space and deeper analysis of design decisions made along the way, see the [permissioned data diary](https://dholms.leaflet.pub/) blog posts and specifically [Reintroducing Spaces](https://dholms.leaflet.pub/3mu3p3ldwrc26).
 
 Current drafts of lexicons can be viewed on the [implementation branch](https://github.com/bluesky-social/atproto/pull/5187) in the atproto repo. Note that the implementation itself is still very much a work in progress.
 
