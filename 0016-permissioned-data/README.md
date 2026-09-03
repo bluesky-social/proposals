@@ -511,7 +511,7 @@ space:<spaceType>[?authority=<did>][&skey=<skey>][&collection=<nsid>...][&action
 
 `authority` defaults to `self`, the granting user's own DID, so a bare `space:<spaceType>` grant covers only the user's own spaces of that type. Reaching spaces under other authorities (e.g. a shared forum anchored on an app or another user) requires naming that authority, or `authority=*` for any.
 
-Similar to permission set declarations (`permission-set` lexicon schemas), space type declarations can be updated at a later point, and the updated `collections` set will apply to any existing client OAuth sessions using the default set. This allows lexicon designers to introduce new record types without required users to go through a re-authorization flow.
+Similar to permission set declarations (`permission-set` lexicon schemas), space type declarations can be updated at a later point, and the updated `collections` set will apply to any existing client OAuth sessions using the default set. This allows lexicon designers to introduce new record types without requiring users to go through a re-authorization flow.
 
 ### Read access
 
