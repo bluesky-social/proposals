@@ -612,13 +612,13 @@ This grouping describes kinds of methods, not separate services. A single servic
 |---|---|---|---|---|
 | `getSpaceCredential` | host | procedure | delegation token + [DPoP](#dpop-binding) (+ client attestation) | Exchange a delegation token for a space credential. |
 | `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `hash`. |
-| `getRecord` | pds/repo | query | OAuth / space credential | Fetch a single record's value. |
-| `listRecords` | pds/repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
-| `getBlob` | pds/repo | query | OAuth / space credential | Fetch a blob by CID. |
-| `listBlobs` | pds/repo | query | OAuth / space credential | List the blob CIDs referenced by records in a repo. |
-| `getLatestCommit` | pds/repo | query | OAuth / space credential | The current signed [commit](#commit-signature) for a repo. |
-| `getRepo` | pds/repo | query | OAuth / space credential | Download a whole repo as a [serialized CAR](#repo-serialization) for full-state backfill. |
-| `listRepoOps` | pds/repo | query | OAuth / space credential | Primary sync mechanism. A repo's [operation log](#incremental-sync) since a given revision, inlining record values by default. Set `excludeValues` for metadata-only entries. |
+| `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
+| `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
+| `getBlob` | repo | query | OAuth / space credential | Fetch a blob by CID. |
+| `listBlobs` | repo | query | OAuth / space credential | List the blob CIDs referenced by records in a repo. |
+| `getLatestCommit` | repo | query | OAuth / space credential | The current signed [commit](#commit-signature) for a repo. |
+| `getRepo` | repo | query | OAuth / space credential | Download a whole repo as a [serialized CAR](#repo-serialization) for full-state backfill. |
+| `listRepoOps` | repo | query | OAuth / space credential | Primary sync mechanism. A repo's [operation log](#incremental-sync) since a given revision, inlining record values by default. Set `excludeValues` for metadata-only entries. |
 | `getDelegationToken` | pds | query | OAuth | Mint a [delegation token](#delegation-token) for a space. Served by the requesting user's PDS. |
 | `createRecord` | pds | procedure | OAuth | Create a record in the caller's permissioned repo for a space. |
 | `putRecord` | pds | procedure | OAuth | Create or update a record. |
