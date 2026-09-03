@@ -259,7 +259,7 @@ A credential provides access to a whole space. As a bearer token, a credential w
 
 The construction is [DPoP](https://www.rfc-editor.org/rfc/rfc9449), the same binding atproto OAuth requires on every authenticated request, with a credential from the space authority in place of an access token. DPoP server-provided nonces are not used.
 
-The application sends a DPoP proof in the `DPoP` header of its `getSpaceCredential` request. The space host MUST verify it per RFC 9449 and copy the [JWK thumbprint](https://www.rfc-editor.org/rfc/rfc7638) of the space authority's own public key into the credential's `cnf.jkt`. The public key does not need to be published or registered.
+The application sends a DPoP proof in the `DPoP` header of its `getSpaceCredential` request. The space host MUST verify it per RFC 9449 and use the [JWK thumbprint](https://www.rfc-editor.org/rfc/rfc7638) value as the space credential's `cnf.jkt` claim. That DPoP key does not need to be otherwise published or registered.
 
 Instead of using the custom atproto `lxm` field (naming an XRPC endpoint NSID), the URL is included in `htu`. This URL must include the URI scheme, hostname, and path components, but not any query parameters or fragment parts.
 
