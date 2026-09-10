@@ -464,7 +464,9 @@ A syncer subscribes to notifications by calling `com.atproto.space.registerNotif
 
 A registration is withdrawn with `com.atproto.space.unregisterNotify`, or simply left to expire.
 
-When a member writes, their PDS sends a `com.atproto.space.notifyWrite` containing the repo's current `rev` and `hash` to each endpoint registered for that repo. A PDS may not otherwise know which services are syncing the space, which is why the **space authority** registers itself as a subscriber on each repo host. Members notify the authority, and the authority forwards each notification to the endpoints registered with it for the space. Each notified syncer then pulls the updated repo directly from the relevant repo host. The authority only routes notifications and does not carry record data.
+When an account writes, their PDS sends a `com.atproto.space.notifyWrite` containing the repo's current `rev` and `hash` to each endpoint registered for that repo. A PDS may not otherwise know which services are syncing the space, which is why the **space authority** registers itself as a subscriber on each repo host. Repo hosts notify the authority, and the authority forwards each notification to the endpoints registered with it for the space. Each notified syncer then pulls the updated repo directly from the relevant repo host. The authority only routes notifications and does not carry record data.
+
+A space authority controls which writers it tracks and which write notifications it forwards, and may exclude writers for any reason including spam or other abuse.
 
 A repo host does not need an explicit out-of-band registration step from the authority to know where to send these notifications. On the first write into a repo for a shared space (one whose authority is not the account's own DID), the repo host resolves the space authority's `#atproto_space_host` endpoint and **auto-registers** it as a subscriber for that repo. Personal-data spaces, where the authority is the account's own DID and the PDS plays both roles, need no such registration.
 
@@ -544,7 +546,7 @@ This default follows the same dynamic-update semantics as a [permission set](htt
 
 **Space management operations** are governed by `manage`, which takes the same `create`/`update`/`delete` verbs applied to the space itself rather than to its records. `manage` ignores `collection`. It is omitted by default, so an ordinary record-access grant confers no administrative capability.
 
-The protocol does not enumerate what each `manage` verb permits, because space management is implementation-defined (see [`simplespace`](#required-pds-space-management-simplespace)). Each space-management implementation maps the verbs onto its own administrative surface. For example, in `com.atproto.simplespace`, `manage=update` authorizes `com.atproto.simplespace.updateSpace` as well as `addMember` and `removeMember`.
+The protocol does not enumerate what each `manage` verb permits, because space management is implementation-defined (see [`simplespace`](#required-pds-space-management-simplespace)). Each space-management implementation maps the verbs onto its own administrative surface. For example, in `com.atproto.simplespace`, `manage=update` authorizes `com.atproto.simplespace.updateSpace` as well as `putMember` and `removeMember`.
 
 `manage=create` authorizes creating a space of the given `spaceType` under the given authority. Unlike every other operation, it concerns a space that does not yet exist, so scoping it to a concrete `skey` is unusual. It is typically granted with `skey=*` ("this app may create spaces of this type").
 
@@ -632,7 +634,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 
 ## Required PDS space management: `simplespace`
 
-The protocol does not specify how spaces are created or how an authority decides who may read them. Those are the concern of each space-management implementation, which sits above the protocol and is identified by its own lexicon namespace.
+The protocol does not specify how spaces are created, how an authority decides who may read them, or which writers it tracks and forwards notifications for. Those are the concern of each space-management implementation, which sits above the protocol and is identified by its own lexicon namespace.
 
 `com.atproto.simplespace` is the space-management implementation that every PDS MUST support. It gives applications a baseline that is available on every account's PDS to build against. `simplespace` spaces are anchored on a user's own DID and governed by an explicit member list (or the `public` and `managing-app` policies described below).
 
@@ -646,9 +648,9 @@ The management procedures are called with an OAuth credential with the relevant 
 | `updateSpace` | procedure | Update config (more details below) |
 | `deleteSpace` | procedure | Delete the space (see [Space deletion](#space-deletion)). |
 | `getSpace` | query | Describe a space and its configuration. |
-| `addMember` | procedure | Add a member (by DID) to view the space. |
+| `putMember` | procedure | Add a member (by DID) or update their read and write access. |
 | `removeMember` | procedure | Remove a member (by DID). |
-| `listMembers` | query | List the current members of a space. |
+| `listMembers` | query | List the current members of a space and their read and write access. |
 
 ### Configuration
 
@@ -656,18 +658,25 @@ The management procedures are called with an OAuth credential with the relevant 
 
 | Field | Values | Description |
 |---|---|---|
-| `policy` | `public` \| `member-list` \| `managing-app` | How the authority decides whether to authorize a _user_. |
+| `readPolicy` | `public` \| `member-list` \| `managing-app` | How the authority decides whether to authorize a user to read. |
+| `writePolicy` | `public` \| `member-list` \| `managing-app` | How the authority decides whether to track and forward a user's write notifications. |
 | `appAccess` | open union (`#open` \| `#allowList`) | How the authority decides whether to authorize an _app_. |
-| `managingApp` | service identifier (DID + fragment) | Used to route application requests, and as the access check target in `managing-app` mode. |
+| `managingApp` | service identifier (DID + fragment) | Used as the access check target when either policy is `managing-app`. |
 
-A user must be authorized by the `policy` **and** their app by `appAccess` for a credential to be minted. A syncing app needs a valid delegation token regardless.
+`simplespace` treats reading and writing as independent permissions. Read access controls whether a space credential is minted. Write access controls whether the authority tracks the writer in `listRepos` and forwards their `notifyWrite` notifications. It does not prevent an account from writing records into its own permissioned repo; applications remain responsible for deciding which records to include in their views.
 
-Both the `policy` and `appAccess` fields are open unions at the schema layer. A host MUST reject values it does not implement at `createSpace` / `updateSpace` time.
+Each member-list entry carries required `read` and `write` booleans. `putMember` replaces both values together.
+
+A user must be authorized by `readPolicy` **and** their app by `appAccess` for a credential to be minted. `appAccess` does not apply to writes because write notifications authenticate the writer's repo host rather than the client application that originated the write.
+
+The two policy fields and `appAccess` are open unions at the schema layer. A host MUST reject values it does not implement at `createSpace` / `updateSpace` time.
 
 **Policy** decides per-user authorization:
-- `member-list` (default): authorize requesters present on the member list.
-- `public`: authorize any requester.
-- `managing-app`: at mint time, ask `managingApp` whether to authorize the request, via [`checkUserAccess`](#the-managing-app) below. Enables dynamic policies (e.g. follower-gating) without an app maintaining a list.
+- `member-list` (authorize) : authorize a member when the corresponding `read` or `write` boolean is true.
+- `public`: authorize any user.
+- `managing-app`: ask `managingApp` whether to authorize the user via [`checkUserAccess`](#the-managing-app) below. This enables dynamic policies (e.g. follower-gating) without the PDS maintaining a list.
+
+`readPolicy` and `writePolicy` each use the same policy variants and default to `member-list`. 
 
 **App access** decides per-app authorization. It is an open union with two current variants:
 - `#open` (default): any application may access the space. No [client attestation](#client-attestation) is required, so public clients work.
@@ -675,11 +684,11 @@ Both the `policy` and `appAccess` fields are open unions at the schema layer. A 
 
 ### The managing app
 
-When a space's `policy` is `managing-app`, the space authority defers to the space's `managingApp` at mint time by calling `com.atproto.simplespace.checkUserAccess`.
+When either policy is `managing-app`, the space authority defers that decision to the space's `managingApp` by calling `com.atproto.simplespace.checkUserAccess`.
 
-Unlike the other `simplespace` methods, `checkUserAccess` is served by the `managingApp`, not the PDS. The authority calls it with itself as `iss` and the `managingApp`'s service identifier as `aud`, so the app can verify the call genuinely originates from the space's authority. It passes the space, the requesting user, and the requesting client (the **attested** `client_id`, if any), and the managing app returns whether to authorize.
+Unlike the other `simplespace` methods, `checkUserAccess` is served by the `managingApp`, not the PDS. The authority calls it with itself as `iss` and the `managingApp`'s service identifier as `aud`, so the app can verify the call genuinely originates from the space's authority. It passes the space, the requesting user, an `access` field set to `read` or `write`, and the requesting client (the **attested** `client_id`, if any). No client is provided for a write check because `notifyWrite` does not identify the application that originated the write.
 
-The app evaluates the request against whatever application-layer state it maintains (e.g. follower graphs, paid-subscription status, join approvals) and returns its decision. The authority mints the credential only if the app authorizes and applies `appAccess` as usual.
+The app evaluates the request against whatever application-layer state it maintains (e.g. follower graphs or paid-subscription status) and returns its decision. For reads, the authority mints the credential only if the app authorizes and applies `appAccess` as usual. For writes, it tracks the repo and forwards its notifications only if the app authorizes.
 
 ## Considerations
 
