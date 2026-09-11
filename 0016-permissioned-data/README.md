@@ -220,7 +220,7 @@ The authority verifies the attestation by resolving `iss` (the `client_id`) to t
 
 ### Space credential
 
-A **space credential** is the token an application presents to a repo host to read a permissioned repo within a space. The authority mints it in exchange for a delegation token, requested through [`com.atproto.space.getSpaceCredential`](#xrpc-api). It is short-lived (default 2 hours) and signed by the space authority's signing key, so any repo host can verify it against the authority's key without contacting the authority.
+A **space credential** is the token an application presents to a repo host to read a permissioned repo within a space. The authority mints it in exchange for a delegation token, requested through [`com.atproto.space.getSpaceCredential`](#xrpc-api). It is short-lived (default 10 minutes, maximum 60 minutes) and signed by the space authority's signing key, so any repo host can verify it against the authority's key without contacting the authority.
 
 A space credential is multi-use. A single credential is intended to be reused across every repo host serving a repo in the space as well as against a given host for repeated requests, until it expires.
 
@@ -246,8 +246,8 @@ Example JWT header and payload (before base64url encoding and signing):
     "jkt": "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I" // JWK thumbprint of the bound key
   },
   "iat": 1738368000, // Issued-at (unix seconds)
-  "exp": 1738375200, // iat + 7200 (2 hours)
-  "jti": "9f8e7d6c5b4a3210fedcba9876543210" // random nonce
+  "exp": 1738368600, // iat + 600 (10 minutes)
+  "jti": "9f8e7d6c5b4a3210fedcba9876543210" // random unique identifier, used for revocation
 }
 ```
 
@@ -339,6 +339,14 @@ A host MUST validate the DPoP proof per RFC 9449, including:
 5. The application reads the repo from each member's repo host with the credential and a [DPoP proof](#dpop-binding) addressed to that host.
 
 An application serving several users of a space does not necessarily need to maintain a space credential for each user. It may obtain its credential using any one user's session. When it loses all OAuth sessions for a space, it can no longer renew the credential and loses access.
+
+### Credential expiration and revocation
+
+Short expiration is the primary revocation mechanism for space credentials. When an authority stops authorizing an application, or the application no longer has any authorized user's session available, it can no longer obtain replacement credentials and its outstanding credentials expire after their remaining lifetime (generally 10 minutes). 
+
+For cases that faster revocation, an authority MAY send `com.atproto.space.notifyCredentialRevoked` to repo hosts serving repos in the space. The notification identifies one or more outstanding credentials by `jti`. A repo host MUST reject a credential whose `jti` has been revoked for that space and retain the revocation for at least 60 minutes, after which no credential with that `jti` can remain valid. The method is authenticated with service auth from the space authority.
+
+For large spaces with many participants, revocation is more costly and less necessary. For smaller spaces, revocation may be more important but also fanout is less costly. The authority is in the best position to make this determination. Therefore, it is both the authority's responsibility and prerogative to fan out revocations. Revocation is idempotent so that the authority may safely retry delivery without creating another stored entry. 
 
 ## Permissioned repos
 
@@ -631,6 +639,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `unregisterNotify` | repo/host | procedure | space credential | Withdraw a `registerNotify` registration. |
 | `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `hash`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
 | `notifySpaceDeleted` | syncer | procedure | service auth | Notify that a space was deleted and its data should be dropped. Sent by the authority to the syncers registered for the space. |
+| `notifyCredentialRevoked` | repo | procedure | service auth | Notify a repo host that the authority has revoked one or more space credentials, identified by `jti`. |
 
 ## Required PDS space management: `simplespace`
 
