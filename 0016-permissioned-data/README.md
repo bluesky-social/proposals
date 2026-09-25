@@ -1,4 +1,4 @@
-# 0016 Permissioned Data
+# 0016 Atproto Spaces
 
 *This is a proposal, not the final specification. Details, terminology, and behaviors are all likely to change.*
 
@@ -14,23 +14,23 @@ Current drafts of lexicons can be viewed on the [implementation branch](https://
 
 In the public broadcast protocol, users publish records into a repository on their PDS, and applications crawl those repositories to build views. Records are signed, redistributable, and universally addressable, with authority resting in the DID that publishes a record.
 
-This document specifies an additional data protocol for **permissioned data**, or data with an access perimeter. The permissioned data protocol serves modalities such as:
+This document specifies **atproto spaces**, an additional protocol for permissioned data, or data with an access perimeter. The protocol serves modalities such as:
 
 - **Personal data**: bookmarks, mutes, drafts
 - **Gated content**: paid newsletters, subscriber-only posts
 - **Socially shared**: private posts, stories
 - **Groups**: private forums, communities, group chats
 
-The permissioned data protocol shares the abstract shape of public broadcast. It retains DID-based authority, per-user repositories, lexicon-typed records, and the general flow of applications crawling PDSes to build views. However it has its own repository format, sync mechanism, addressing scheme, and resolution path. Public broadcast is built for open distribution (signed, archival, rebroadcastable) while the permissioned data protocol is built for party-to-party transmission within an access boundary.
+Atproto spaces shares the abstract shape of public broadcast. It retains DID-based authority, per-user repositories, lexicon-typed records, and the general flow of applications crawling PDSes to build views. However it has its own repository format, sync mechanism, addressing scheme, and resolution path. Public broadcast is built for open distribution (signed, archival, rebroadcastable) while atproto spaces is built for party-to-party transmission within an access boundary.
 
-The permissioned data protocol provides **access control, not confidentiality**. It is [not end-to-end encrypted](https://dholms.leaflet.pub/3meluqcwky22a). Services (both PDSes and authorized applications) can read the data they handle, which is required for server-side features such as search, indexing, notifications, aggregation, and moderation. E2EE is a separate concern that may be layered on top by an application and is out of scope in this proposal.
+Atproto spaces provides **access control, not confidentiality**. It is [not end-to-end encrypted](https://dholms.leaflet.pub/3meluqcwky22a). Services (both PDSes and authorized applications) can read the data they handle, which is required for server-side features such as search, indexing, notifications, aggregation, and moderation. E2EE is a separate concern that may be layered on top by an application and is out of scope in this proposal.
 
 ### Relationship to public broadcast
 
-| | Public broadcast | Permissioned data |
+| | Public broadcast | Atproto spaces |
 |---|---|---|
-| Unit of data | Record in a repo | Record in a permissioned repo |
-| Repo scope | One repo per user | One permissioned repo per (user, space) |
+| Unit of data | Record in a repo | Record in a space repo |
+| Repo scope | One repo per user | One space repo per (user, space) |
 | Record authority | User DID | User DID |
 | URI authority | User DID | Space authority DID |
 | Commit | Merkle Search Tree root | LtHash set-hash digest |
@@ -40,9 +40,9 @@ The permissioned data protocol provides **access control, not confidentiality**.
 
 ### Terminology
 
-- **Space**: an authorization and sync boundary for a set of permissioned records, identified by an `(authority, type, skey)` triple.
-- **Permissioned repo**: one user's records within one space, with a cryptographic commit, hosted on that user's PDS.
-- **Repo host**: a service that stores and serves users' permissioned repos.
+- **Space**: an authorization and sync boundary for a set of records, identified by an `(authority, type, skey)` triple.
+- **Space repo**: one user's records within one space, with a cryptographic commit, hosted on that user's PDS.
+- **Repo host**: a service that stores and serves users' space repos.
 - **Space host**: a service that answers for a space as a whole, issuing credentials, enumerating writers, and routing notifications.
 - **Space authority**: the DID at the root of a space, which resolves to the space host and the key material for issuing credentials.
 - **Space credential**: a token issued by the space authority that grants read access to a space, DPoP-bound to the application it was issued to.
@@ -50,11 +50,11 @@ The permissioned data protocol provides **access control, not confidentiality**.
 - **Client attestation**: a token signed by an application's own client authentication key, proving the application's identity to a space authority. Required only when a space gates on client app identity.
 - **Syncer**: an application that keeps its own copy of a space in sync by pulling from repo hosts.
 
-A PDS fulfills both the roles of a **repo host** and a **space host**. However, these roles are discussed separately because they do not necessarily need to be filled by a PDS. A permissioned repo or a space may be hosted by any service that implements the [required APIs](#xrpc-api).
+A PDS fulfills both the roles of a **repo host** and a **space host**. However, these roles are discussed separately because they do not necessarily need to be filled by a PDS. A space repo or a space may be hosted by any service that implements the [required APIs](#xrpc-api).
 
 ## Spaces
 
-A **space** is an authorization and sync boundary representing a shared social context. A space may include many different types of records from many users. The space does not colocate records on a single network host. Instead, each user stores their own records for a given space in a [permissioned repo](#permissioned-repos) on their own repo host. A space is the aggregation of these per-user repos across the network: an application presenting a space pulls each member's repo from its host, assembles the view, and applies access control to requesting users.
+A **space** is an authorization and sync boundary representing a shared social context. A space may include many different types of records from many users. The space does not colocate records on a single network host. Instead, each user stores their own records for a given space in a [space repo](#space-repos) on their own repo host. A space is the aggregation of these per-user repos across the network: an application presenting a space pulls each member's repo from its host, assembles the view, and applies access control to requesting users.
 
 Each space is identified by three values:
 
@@ -66,7 +66,7 @@ Reading or syncing a space requires a **space credential** signed by the declare
 
 ### Addressing
 
-A permissioned record is addressed by an `at://` URI with a fixed `space` segment:
+A record in a space is addressed by an `at://` URI with a fixed `space` segment:
 
 ```
 at://{spaceDid}/space/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
@@ -75,16 +75,16 @@ at://{spaceDid}/space/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
 | Component | Type | Description |
 |---|---|---|
 | `spaceDid` | DID | Space authority DID |
-| `space` | literal | Fixed marker identifying this as a permissioned space URI |
+| `space` | literal | Fixed marker identifying this as a space URI |
 | `spaceType` | NSID | Space type |
 | `skey` | string | Space key |
 | `authorDid` | DID | DID of the record's author |
 | `collection` | NSID | Record collection |
 | `rkey` | string | Record key |
 
-Permissioned data reuses the `at://` scheme rather than defining its own. The literal `space` segment sits where a collection NSID appears in a public atproto URI, so a permissioned URI is distinguished from a public one by that marker in the first path segment under the authority DID. The two are never ambiguous, as a public collection is an NSID, which always contains at least two `.`s, whereas the `space` marker contains none.
+Atproto spaces reuses the `at://` scheme rather than defining its own. The literal `space` segment sits where a collection NSID appears in a public atproto URI, so a space URI is distinguished from a public one by that marker in the first path segment under the authority DID. The two are never ambiguous, as a public collection is an NSID, which always contains at least two `.`s, whereas the `space` marker contains none.
 
-All segments through `rkey` are necessary to identify a **permissioned record**. The leading segments through `skey` may be used to reference a **space**:
+All segments through `rkey` are necessary to identify a **space record**. The leading segments through `skey` may be used to reference a **space**:
 
 ```
 Space:  at://{spaceDid}/space/{spaceType}/{skey}
@@ -220,7 +220,7 @@ The authority verifies the attestation by resolving `iss` (the `client_id`) to t
 
 ### Space credential
 
-A **space credential** is the token an application presents to a repo host to read a permissioned repo within a space. The authority mints it in exchange for a delegation token, requested through [`com.atproto.space.getSpaceCredential`](#xrpc-api). It is short-lived (default 2 hours) and signed by the space authority's signing key, so any repo host can verify it against the authority's key without contacting the authority.
+A **space credential** is the token an application presents to a repo host to read a space repo within a space. The authority mints it in exchange for a delegation token, requested through [`com.atproto.space.getSpaceCredential`](#xrpc-api). It is short-lived (default 2 hours) and signed by the space authority's signing key, so any repo host can verify it against the authority's key without contacting the authority.
 
 A space credential is multi-use. A single credential is intended to be reused across every repo host serving a repo in the space as well as against a given host for repeated requests, until it expires.
 
@@ -340,11 +340,11 @@ A host MUST validate the DPoP proof per RFC 9449, including:
 
 An application serving several users of a space does not necessarily need to maintain a space credential for each user. It may obtain its credential using any one user's session. When it loses all OAuth sessions for a space, it can no longer renew the credential and loses access.
 
-## Permissioned repos
+## Space repos
 
-A **permissioned repo** is one account's set of records within one space, generally stored on that user's own PDS. A user has one permissioned repo per space it participates in. Abstractly, a permissioned repo offers a similar interface to a public [atproto repository](https://atproto.com/specs/repository): a key/value mapping where keys are path names (a collection NSID and an rkey) and values are CBOR-encoded records. PDSes expose a CRUD interface for interacting with a user's permissioned repos.
+A **space repo** is one account's set of records within one space, generally stored on that user's own PDS. A user has one space repo per space it participates in. Abstractly, a space repo offers a similar interface to a public [atproto repository](https://atproto.com/specs/repository): a key/value mapping where keys are path names (a collection NSID and an rkey) and values are CBOR-encoded records. PDSes expose a CRUD interface for interacting with a user's space repos.
 
-Each permissioned repo is summarized by a **commit**. A commit is a short, signed digest that allows a syncer to check whether its copy of a repo matches the source without resyncing it in its entirety.
+Each space repo is summarized by a **commit**. A commit is a short, signed digest that allows a syncer to check whether its copy of a repo matches the source without resyncing it in its entirety.
 
 ### Commit digest
 
@@ -409,7 +409,7 @@ The `ver` field is fixed at `1` for this version of the protocol. It corresponds
 
 ### Repo serialization
 
-A permissioned repo may be serialized to a [CAR file](https://dasl.ing/car.html), the same serialization format used to export a public atproto repository. It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
+A space repo may be serialized to a [CAR file](https://dasl.ing/car.html), the same serialization format used to export a public atproto repository. It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
 
 The CAR header declares **two roots**, in order:
 
@@ -426,7 +426,7 @@ The serialization carries the information needed to reconstruct and verify the r
 
 ## Sync
 
-Permissioned data sync is functionally similar to public atproto. Applications build views by pulling repos from their hosts. The major difference is that there is no relay to provide a collated firehose of data for the network as permissioned repositories are by their nature non-rebroadcastable. An application pulls directly from each repo host and is responsible for keeping its own copy in sync.
+Sync for atproto spaces is functionally similar to public atproto. Applications build views by pulling repos from their hosts. The major difference is that there is no relay to provide a collated firehose of data for the network as space repositories are by their nature non-rebroadcastable. An application pulls directly from each repo host and is responsible for keeping its own copy in sync.
 
 ### Incremental sync
 
@@ -452,7 +452,7 @@ For the narrower case of *healing* a copy that has only slightly diverged, a syn
 
 ### Blob sync
 
-Blobs referenced by permissioned records are stored on the authoring repo's host and fetched via `com.atproto.space.getBlob` with the relevant space credential.
+Blobs referenced by space records are stored on the authoring repo's host and fetched via `com.atproto.space.getBlob` with the relevant space credential.
 
 A syncer may discovers which blobs a repo references through `com.atproto.space.listBlobs` or by discovering blob refs in synced records.
 
@@ -600,10 +600,10 @@ When expressing space resources in a permission set, the `spaceType` must follow
 
 ## XRPC API
 
-All protocol XRPC methods for permissioned data are currently defined under the `com.atproto.space` namespace.
+All protocol XRPC methods for atproto spaces are currently defined under the `com.atproto.space` namespace.
 
 These methods fall into a few loose groups:
-- **Repo** methods concern an account's [permissioned repo](#permissioned-repos) within a space, and are implemented by a repo host.
+- **Repo** methods concern an account's [space repo](#space-repos) within a space, and are implemented by a repo host.
 - **Host** methods concern a space as a whole, and are implemented by a space host.
 - **PDS** methods are required set of baseline PDS methods that applications can build against.
 - **Syncer** methods concern a syncer getting real-time notifications of updates to a space or repos in a space.
@@ -622,7 +622,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `getRepo` | repo | query | OAuth / space credential | Download a whole repo as a [serialized CAR](#repo-serialization) for full-state backfill. |
 | `listRepoOps` | repo | query | OAuth / space credential | Primary sync mechanism. A repo's [operation log](#incremental-sync) since a given revision, inlining record values by default. Set `excludeValues` for metadata-only entries. |
 | `getDelegationToken` | pds | query | OAuth | Mint a [delegation token](#delegation-token) for a space. Served by the requesting user's PDS. |
-| `createRecord` | pds | procedure | OAuth | Create a record in the caller's permissioned repo for a space. |
+| `createRecord` | pds | procedure | OAuth | Create a record in the caller's space repo for a space. |
 | `putRecord` | pds | procedure | OAuth | Create or update a record. |
 | `deleteRecord` | pds | procedure | OAuth | Delete a record. |
 | `applyWrites` | pds | procedure | OAuth | Apply a batch of creates, updates, and deletes to one repo atomically. |
@@ -663,7 +663,7 @@ The management procedures are called with an OAuth credential with the relevant 
 | `appAccess` | open union (`#open` \| `#allowList`) | How the authority decides whether to authorize an _app_. |
 | `managingApp` | service identifier (DID + fragment) | Used as the access check target when either policy is `managing-app`. |
 
-`simplespace` treats reading and writing as independent permissions. Read access controls whether a space credential is minted. Write access controls whether the authority tracks the writer in `listRepos` and forwards their `notifyWrite` notifications. It does not prevent an account from writing records into its own permissioned repo; applications remain responsible for deciding which records to include in their views.
+`simplespace` treats reading and writing as independent permissions. Read access controls whether a space credential is minted. Write access controls whether the authority tracks the writer in `listRepos` and forwards their `notifyWrite` notifications. It does not prevent an account from writing records into its own space repo; applications remain responsible for deciding which records to include in their views.
 
 Each member-list entry carries required `read` and `write` booleans. `putMember` replaces both values together.
 
@@ -692,15 +692,15 @@ The app evaluates the request against whatever application-layer state it mainta
 
 ## Considerations
 
-This section is non-normative. It discusses how permissioned data interacts with concerns that span the whole protocol. The short answer to most of them is that permissioned data behaves much like public broadcast, because it deliberately keeps the same shape: DID-based authority, per-user repositories, lexicon-typed records, and applications that crawl repos to build views.
+This section is non-normative. It discusses how atproto spaces interact with concerns that span the whole protocol. The short answer to most of them is that they behave much like public broadcast, because they deliberately have the same shape: DID-based authority, per-user repositories, lexicon-typed records, and applications that crawl repos to build views.
 
 ### Moderation
 
 Moderation in public broadcast atproto is handled at various levels, including labeling and infrastructure takedowns. Every service in the network is able to, and must, moderate the data it hosts and serves according to its legal requirements, terms of service, and community guidelines. In addition, moderation services may publish public labels that applications and infrastructure providers can then act on.
 
-Permissioned data keeps this model, with the obvious difference that the data is not open, and therefore a moderation service cannot observe a space it has not been admitted to. A moderation service functions as just another reader. To label content in a space, a moderation service must hold a space credential like any other syncer, which means the space authority has admitted it under the same [access control](#access-control) rules.
+Atproto spaces, as a protocol, keeps this model, with the obvious difference that the data is not open, and therefore a moderation service cannot observe a space it has not been admitted to. A moderation service functions as just another reader. To label content in a space, a moderation service must hold a space credential like any other syncer, which means the space authority has admitted it under the same [access control](#access-control) rules.
 
-A moderation service should not publish public labels for records that reside in permissioned spaces, as this leaks metadata about otherwise-private data. The public `com.atproto.label.subscribeLabels` endpoint is therefore a poor fit here. Instead, labelers may publish labels as records in a permissioned repo within the relevant space, keeping the labels inside the same access boundary as the content they describe.
+A moderation service should not publish public labels for records that reside in spaces, as this leaks metadata about otherwise-private data. The public `com.atproto.label.subscribeLabels` endpoint is therefore a poor fit here. Instead, labelers may publish labels as records in a space repo within the relevant space, keeping the labels inside the same access boundary as the content they describe.
 
 At the infrastructure level, familiar tools and processes apply. Each participant retains authority over their own repo and can delete their own records. A repo host can take down accounts or refuse to serve repos that it hosts. An application can filter records from the views that it serves.
 
@@ -710,7 +710,7 @@ A space authority has an additional lever with no public analogue. Because readi
 
 The scaling story is expected to be similar to the public broadcast protocol. Data is partitioned per user across many hosts, no single node (at the hosting layer) holds an entire space, and applications may choose how much and which data they wish to index.
 
-The one major difference is the lack of relays. Applications sync permissioned repos directly from PDSes rather than relying on an intermediary service, which places additional load on PDSes. A few things make this more approachable.
+The one major difference is the lack of relays. Applications sync space repos directly from PDSes rather than relying on an intermediary service, which places additional load on PDSes. A few things make this more approachable.
 
 First, the sync protocol itself is significantly lighter-weight than public sync, as it does not carry the overhead of maintaining and transmitting the structural nodes of the MST.
 
@@ -720,10 +720,10 @@ Finally, and relatedly, the sync APIs are not open to the public, so resource ab
 
 ### Account lifecycle
 
-An account's participation in permissioned data is tied to the same DID and signing key as its public atproto identity. The lifecycle events that already exist, migration, key rotation, deactivation, and deletion, therefore all function the same way in the context of permissioned data.
+An account's participation in a space is tied to the same DID and signing key as its public atproto identity. The lifecycle events that already exist, migration, key rotation, deactivation, and deletion, therefore all function the same way in the context of atproto spaces.
 
-**Migration.** Moving a permissioned repo between hosts functions the same as migrating a public repository. The main difference is that a user has many permissioned repos rather than one, so account migration flows will need to enumerate and track all of an account's permissioned repos (via `listSpaces`) and the blobs associated with them (via `listBlobs`).
+**Migration.** Moving a space repo between hosts functions the same as migrating a public repository. The main difference is that a user has many space repos rather than one, so account migration flows will need to enumerate and track all of an account's space repos (via `listSpaces`) and the blobs associated with them (via `listBlobs`).
 
-**Deactivation & deletion.** Deactivation and deletion function exactly as they do for [public broadcast](https://atproto.com/specs/account#hosting-status). If an account is deleted, downstream services are expected to delete all public and permissioned data associated with the account. If an account is deactivated, downstream services are expected to stop serving all public and permissioned data associated with it.
+**Deactivation & deletion.** Deactivation and deletion function exactly as they do for [public broadcast](https://atproto.com/specs/account#hosting-status). If an account is deleted, downstream services are expected to delete all public data and space data associated with the account. If an account is deactivated, downstream services are expected to stop serving all public data and space data associated with it.
 
-**Identity & account events.** Applications currently learn about changes to an account's status or identity (such as its signing key and handle) via events on the firehose (`com.atproto.sync.subscribeRepos`). These same account updates apply to permissioned repos in exactly the same manner. This means an application that syncs only permissioned repos, and no public repositories, still needs to subscribe to a firehose to receive `#account` and `#identity` events. Future work may include an additional subscription endpoint that broadcasts only those two event types without the full stream of public repository commits.
+**Identity & account events.** Applications currently learn about changes to an account's status or identity (such as its signing key and handle) via events on the firehose (`com.atproto.sync.subscribeRepos`). These same account updates apply to space repos in exactly the same manner. This means an application that syncs only space repos, and no public repositories, still needs to subscribe to a firehose to receive `#account` and `#identity` events. Future work may include an additional subscription endpoint that broadcasts only those two event types without the full stream of public repository commits.
