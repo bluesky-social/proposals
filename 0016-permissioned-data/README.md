@@ -356,6 +356,8 @@ The state is a fixed 2048-byte buffer, interpreted as 1024 little-endian unsigne
 
 Each record in the repo maps to one element, the UTF-8 bytes of `{collection}/{rkey}/{record_cid}`. As with the public repository, the components are currently limited to ASCII, so the encoding (though specified as UTF-8) is a no-op.
 
+`record_cid` is the [DASL CID](https://dasl.ing/cid.html) of the record's encoded bytes, using the [DRISL](https://dasl.ing/drisl.html) codec, rendered as a string.
+
 To **add** an element:
 
 1. Expand the element to 2048 bytes with BLAKE3 in XOF (extendable-output) mode.
@@ -409,20 +411,46 @@ The `ver` field is fixed at `1` for this version of the protocol. It corresponds
 
 ### Repo serialization
 
-A permissioned repo may be serialized to a [CAR file](https://dasl.ing/car.html), the same serialization format used to export a public atproto repository. It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
+A space repo is serialized as a [STAR file](https://tangled.org/microcosm.blue/star/blob/star-lite-v1-generic/star-lite/spaces-archive.md). It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
 
-The CAR header declares **two roots**, in order:
+STAR is an archive format with a metadata header followed by a streaming key/value map of record paths to values.
 
-1. the **signed commit** — the [`signedCommit`](#commit-signature) block described above
-2. the **index** — a [DRISL](https://dasl.ing/drisl.html) (DAG-CBOR) map from `"{collection}/{rkey}"` to the record's CID, with keys in canonical DAG-CBOR map order (shortest key first, then bytewise)
+A STAR file takes the following form:
+```
+|-------- header --------| |--------------------- data (records) -----------------------|
+[ magic | len | metadata ] [ len | path | len | record ] [ len | path | len | record ]...
+```
 
-The record blocks follow the two roots, and MUST appear in the same order as their index entries.
+The magic bytes at the start are `0x2A 0x6C 0x01`. Each `len` is an unsigned varint giving the byte length of the following item. The header metadata is a DRISL map, at most 8192 bytes, identifying the repo and carrying its signed commit.
 
-The serialization carries the information needed to reconstruct and verify the repo, and a consumer can validate it as a stream:
+Here is an example metadata object for a space repo:
+```json
+{
+  "$type": "atproto-space-repo",
+  "did": "did:example:alice", 
+  "space": "at://did:example:forum/space/com.atmoboards.forum/general",
+  "ver": 1,                 // commit format version
+  "rev": "3mwcj3b6uak2f",   // commit revision (TID)
+  "hash": 0x...,            // 32-byte SHA-256 digest of the LtHash state
+  "ikm": 0x...,             // 32-byte random nonce
+  "sig": 0x...,             // author's signature over the commit context
+  "mac": 0x...              // HMAC binding the digest to the signed context
+}
+```
 
-1. Verify the commit's signature and MAC. The commit's `hash` is now trusted.
-2. Fold each index entry's `{collection}/{rkey}/{record_cid}` into a running [set hash](#commit-digest) as it is read, then compare the result against the commit's `hash`. This authenticates the whole index without reading a single record.
-3. Verify each record block against its own CID as it streams past.
+The body contains every record in the repo:
+
+- Each key is the UTF-8 encoding of a valid record path, `{collection}/{rkey}`
+- Each value is the record's canonical DRISL encoding
+- Records MUST appear in strict lexicographic order of the keys, with no duplicate keys.
+
+The serialization carries the information needed to reconstruct and verify a repo snapshot, and a consumer can validate it as a stream:
+
+1. Validate the metadata, including `$type` and the commit version, and check that `did` and `space` match the requested repo. Verify the commit's signature and MAC using that context.
+2. Starting with an empty [set hash](#commit-digest), read each path/record pair, validate the path and record encoding, compute the record's CID, and fold `{collection}/{rkey}/{record_cid}` into the running set hash.
+3. Once every record has been streamed, compare `sha256(state)` against the commit's `hash`. Only a match establishes that the complete repo has been received.
+
+Readers MUST reject the entire archive on a parse error, non-canonical encoding, an exceeded length limit, a duplicate or out-of-order key, or a digest mismatch.
 
 ## Sync
 
@@ -444,9 +472,7 @@ The oplog is a transport optimization rather than a committed data structure. It
 
 ### Full-state recovery
 
-In cases in which a syncer cannot proceed incrementally, it must recover by syncing the full state of the repository.
-
-To do so, a syncer fetches the whole repo as a [serialized CAR](#repo-serialization) from `com.atproto.space.getRepo`. It folds the index into a running set hash and compares that against the signed commit to authenticate the index, then validates each record block against its index CID as it streams past, rebuilding its local copy. A syncer replacing an existing copy diffs the recovered structure against what it holds and keeps only the records it is missing.
+When a syncer cannot proceed incrementally, it fetches the whole repo as a [STAR archive](#repo-serialization) from `com.atproto.space.getRepo`. After verifying the archive, it updates its local copy to match, including removing records absent from the recovered state.
 
 For the narrower case of *healing* a copy that has only slightly diverged, a syncer may prefer to avoid transferring the whole repo. It can fetch the latest commit through `com.atproto.space.getLatestCommit`, enumerate the repo's structure (paths → CIDs) with `com.atproto.space.listRecords` using `excludeValues`, diff that lightweight listing against its local copy, and fetch just the differing records with `com.atproto.space.getRecord`. This trades the single `getRepo` round-trip for a smaller total transfer when most of the repo is already held.
 
@@ -619,7 +645,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `getBlob` | repo | query | OAuth / space credential | Fetch a blob by CID. |
 | `listBlobs` | repo | query | OAuth / space credential | List the blob CIDs referenced by records in a repo. |
 | `getLatestCommit` | repo | query | OAuth / space credential | The current signed [commit](#commit-signature) for a repo. |
-| `getRepo` | repo | query | OAuth / space credential | Download a whole repo as a [serialized CAR](#repo-serialization) for full-state backfill. |
+| `getRepo` | repo | query | OAuth / space credential | Download a whole repo as a [STAR archive](#repo-serialization) for full-state backfill. |
 | `listRepoOps` | repo | query | OAuth / space credential | Primary sync mechanism. A repo's [operation log](#incremental-sync) since a given revision, inlining record values by default. Set `excludeValues` for metadata-only entries. |
 | `getDelegationToken` | pds | query | OAuth | Mint a [delegation token](#delegation-token) for a space. Served by the requesting user's PDS. |
 | `createRecord` | pds | procedure | OAuth | Create a record in the caller's permissioned repo for a space. |
