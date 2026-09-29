@@ -207,7 +207,7 @@ The signature for the delegation token is computed using the regular JWT process
 
 #### Credential key binding
 
-The application sends an HTTP Message Signature covering the `Authorization` field in its `getSpaceCredential` request. After validating the delegation token, the space host MUST validate the `atproto-space` signature, require its `alg` to be `ecdsa-p256-sha256`, and require its `keyid` to be a P-256 `did:key`. It then uses the signature's `keyid` as the space credential's `cnf.kid`.
+The application sends an HTTP Message Signature covering the `Authorization` field in its `getSpaceCredential` request. After validating the delegation token, the space host MUST validate the `atproto-space` signature, require its `alg` to be `ecdsa-p256-sha256`, and require its `keyid` to be a P-256 `did:key`. It then uses the signature's `keyid` as the space credential's `cnf.kid`. The signature input MUST be exactly `("authorization")`.
 
 ```http
 Authorization: Bearer <delegation-token>
@@ -289,7 +289,7 @@ A host receiving a space credential MUST validate the authorization token and HT
 
 - require exactly one `Authorization` field using the `Atproto-Space` scheme and one `Atproto-Space-Audience` field
 - validate the space credential, including its type, issuer, signature, subject space, and expiration
-- require the `atproto-space` signature to cover `authorization` and `atproto-space-audience`
+- require the `atproto-space` signature's input to be exactly `("authorization" "atproto-space-audience")`, in that order
 - verify the signature's `alg` is `ecdsa-p256-sha256`
 - verify the signature's `keyid` is a P-256 `did:key` 
 - verify that `keyid` equals the space credential's `cnf.kid`
