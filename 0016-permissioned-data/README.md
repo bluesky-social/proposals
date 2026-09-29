@@ -164,13 +164,13 @@ Some spaces do not require a client attestation. The requirement can be communic
 
 ### Credential key binding
 
-A credential provides access to a whole space. As a bearer token, a credential would become a shared secret: any repo host given a credential in order to serve one repo could turn around and replay it against every other repo host in the space, to sync a repo that it should not have necessarily have access to. Therefore, each space credential is bound at issuance to a key held by the syncer, and each request using the credential carries a signature made by that key over both the credential and the target DID.
+A credential provides access to a whole space. As a bearer token, a credential would become a shared secret: any repo host given a credential in order to serve one repo could turn around and replay it against every other repo host in the space, to sync a repo that it should not have necessarily have access to. Therefore, each space credential is bound at issuance to a key held by the syncer, and each request using the credential carries a signature made by that key over both the credential and its audience DID.
 
 The construction uses [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) alongside the `cnf.kid` confirmation method defined by [RFC 7800](https://www.rfc-editor.org/rfc/rfc7800#section-3.4). The application proves possession of a P-256 `did:key` by signing the authorization token. The space authority places the signature's `keyid` in the space credential as `cnf.kid`, and each service receiving the credential verifies that the accompanying HTTP Message Signature is made by the same key.
 
 The application should generate a new keypair each time it requests a new space credential. The private key need only be retained for the lifetime of the space credential and should be discarded when the credential expires or is deleted.
 
-Signatures use the `ecdsa-p256-sha256` algorithm defined by [RFC 9421 Section 3.3.4](https://www.rfc-editor.org/rfc/rfc9421#section-3.3.4). The signature value is the 64-octet concatenation `r || s`, with each integer encoded as a zero-padded 32-octet big-endian value.
+Signatures use the `ecdsa-p256-sha256` algorithm defined by [RFC 9421 Section 3.3.4](https://www.rfc-editor.org/rfc/rfc9421#section-3.3.4). The signature value is the 64-octet concatenation `r || s`, with each integer encoded as a zero-padded 32-octet big-endian value. This is the same binary encoding used by atproto commit signatures. Unlike atproto commits signatures, low-S normalization is not required, and verifiers MUST accept both low-S and high-S signatures.
 
 ### Delegation token
 
@@ -207,12 +207,12 @@ The signature for the delegation token is computed using the regular JWT process
 
 #### Credential key binding
 
-The application sends an HTTP Message Signature covering the `Authorization` field in its `getSpaceCredential` request. After validating the delegation token, the space host MUST validate the `atproto` signature. It then uses the signature's `keyid` as the space credential's `cnf.kid`.
+The application sends an HTTP Message Signature covering the `Authorization` field in its `getSpaceCredential` request. After validating the delegation token, the space host MUST validate the `atproto-space` signature, require its `alg` to be `ecdsa-p256-sha256`, and require its `keyid` to be a P-256 `did:key`. It then uses the signature's `keyid` as the space credential's `cnf.kid`.
 
 ```http
 Authorization: Bearer <delegation-token>
-Signature-Input: atproto=("authorization");keyid="did:key:zDna..."
-Signature: atproto=:<signature>:
+Signature-Input: atproto-space=("authorization");keyid="did:key:zDna...";alg="ecdsa-p256-sha256"
+Signature: atproto-space=:<signature>:
 ```
 
 ### Client attestation
@@ -274,28 +274,29 @@ The signature for the space credential is computed using the regular JWT process
 
 #### Credential key binding
 
-When using the space credential to make authorized requests, the space credential is presented in `Authorization` using the `Atproto-Space` scheme alongside an HTTP Message Signature over both the `Authorization` header and the `Atproto-Target` header:
+When using the space credential to make authorized requests, the space credential is presented in `Authorization` using the `Atproto-Space` scheme alongside an HTTP Message Signature over both the `Authorization` header and the `Atproto-Space-Audience` header:
 
 ```http
 Authorization: Atproto-Space <space-credential>
-Atproto-Target: did:plc:repoOwner
-Signature-Input: atproto=("authorization" "atproto-target");keyid="did:key:zDna..."
-Signature: atproto=:<signature>:
+Atproto-Space-Audience: did:plc:repoOwner
+Signature-Input: atproto-space=("authorization" "atproto-space-audience");keyid="did:key:zDna...";alg="ecdsa-p256-sha256"
+Signature: atproto-space=:<signature>:
 ```
 
-When syncing a repository, `Atproto-Target` is the DID of the account that the repo belongs to. If the space credential is being used to make a request against the space host, then `Atproto-Target` is the space authority DID.
+When syncing a repository, `Atproto-Space-Audience` is the DID of the account that the repo belongs to. If the space credential is being used to make a request against the space host, then `Atproto-Space-Audience` is the space authority DID.
 
 A host receiving a space credential MUST validate the authorization token and HTTP Message Signature, including:
 
-- require exactly one `Authorization` field using the `Atproto-Space` scheme and one `Atproto-Target` field
+- require exactly one `Authorization` field using the `Atproto-Space` scheme and one `Atproto-Space-Audience` field
 - validate the space credential, including its type, issuer, signature, subject space, and expiration
-- require the `atproto` signature to cover `authorization` and `atproto-target`
+- require the `atproto-space` signature to cover `authorization` and `atproto-space-audience`
+- verify the signature's `alg` is `ecdsa-p256-sha256`
 - verify the signature's `keyid` is a P-256 `did:key` 
 - verify that `keyid` equals the space credential's `cnf.kid`
 - verify the signature
-- verify that `Atproto-Target` equals the target DID derived from the request
+- verify that `Atproto-Space-Audience` equals the audience DID derived from the request
 
-The signature does not bind the HTTP method or URI. It MAY be reused with the same authorization token and target DID until the token expires. Replay against the same target is allowed.
+The signature does not bind the HTTP method or URI. It MAY be reused with the same authorization token and audience DID until the token expires. Replay against the same audience is allowed.
 
 ### Credential flow
 
