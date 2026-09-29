@@ -91,6 +91,8 @@ Space:  at://{spaceDid}/space/{spaceType}/{skey}
 Record: at://{spaceDid}/space/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
 ```
 
+A new `space-ref` Lexicon string format is defined for references to just a space (includes segments up to `skey` and no more).
+
 ### Space authority
 
 A space's **authority** is the DID at the root of the space and the issuer of its [credentials](#access-control). It may be a user's own DID as for personal data such as bookmarks or mutes. Or it may be a dedicated DID which lets a shared space transfer between users independently of any individual account.
