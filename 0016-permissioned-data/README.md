@@ -212,7 +212,7 @@ The application sends an HTTP Message Signature covering the `Authorization` fie
 ```http
 Authorization: Bearer <delegation-token>
 Signature-Input: atproto-space=("authorization");keyid="did:key:zDna...";alg="ecdsa-p256-sha256"
-Signature: atproto-space=:<signature>:
+Signature: atproto-space=:dMT76e...:
 ```
 
 ### Client attestation
@@ -280,7 +280,7 @@ When using the space credential to make authorized requests, the space credentia
 Authorization: Atproto-Space <space-credential>
 Atproto-Space-Audience: did:plc:repoOwner
 Signature-Input: atproto-space=("authorization" "atproto-space-audience");keyid="did:key:zDna...";alg="ecdsa-p256-sha256"
-Signature: atproto-space=:<signature>:
+Signature: atproto-space=:wNmSUA...:
 ```
 
 When syncing a repository, `Atproto-Space-Audience` is the DID of the account that the repo belongs to. If the space credential is being used to make a request against the space host, then `Atproto-Space-Audience` is the space authority DID.
