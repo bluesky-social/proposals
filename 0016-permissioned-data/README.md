@@ -207,11 +207,11 @@ The signature for the delegation token is computed using the regular JWT process
 
 #### Credential key binding
 
-The application sends an HTTP Message Signature covering the `Authorization` field in its `getSpaceCredential` request. After validating the delegation token, the space host MUST validate the `atproto-space` signature, require its `alg` to be `ecdsa-p256-sha256`, and require its `keyid` to be a P-256 `did:key`. It then uses the signature's `keyid` as the space credential's `cnf.kid`. The signature input MUST be exactly `("authorization")`.
+The application sends an HTTP Message Signature covering the `Authorization` field in its `getSpaceCredential` request. After validating the delegation token, the space host MUST validate the `atproto-space` signature and require its `keyid` to be a P-256 `did:key`. It then uses the signature's `keyid` as the space credential's `cnf.kid`. The covered component list MUST be exactly `("authorization")`. If the `alg` signature parameter is present, it MUST be `ecdsa-p256-sha256`.
 
 ```http
 Authorization: Bearer <delegation-token>
-Signature-Input: atproto-space=("authorization");keyid="did:key:zDna...";alg="ecdsa-p256-sha256"
+Signature-Input: atproto-space=("authorization");keyid="did:key:zDna..."
 Signature: atproto-space=:dMT76e...:
 ```
 
@@ -279,7 +279,7 @@ When using the space credential to make authorized requests, the space credentia
 ```http
 Authorization: Atproto-Space <space-credential>
 Atproto-Space-Audience: did:plc:repoOwner
-Signature-Input: atproto-space=("authorization" "atproto-space-audience");keyid="did:key:zDna...";alg="ecdsa-p256-sha256"
+Signature-Input: atproto-space=("authorization" "atproto-space-audience")
 Signature: atproto-space=:wNmSUA...:
 ```
 
@@ -289,11 +289,9 @@ A host receiving a space credential MUST validate the authorization token and HT
 
 - require exactly one `Authorization` field using the `Atproto-Space` scheme and one `Atproto-Space-Audience` field
 - validate the space credential, including its type, issuer, signature, subject space, and expiration
-- require the `atproto-space` signature's input to be exactly `("authorization" "atproto-space-audience")`, in that order
-- verify the signature's `alg` is `ecdsa-p256-sha256`
-- verify the signature's `keyid` is a P-256 `did:key` 
-- verify that `keyid` equals the space credential's `cnf.kid`
-- verify the signature
+- require the `atproto-space` signature's covered component list to be exactly `("authorization" "atproto-space-audience")`, in that order
+- require the space credential's `cnf.kid` to be a P-256 `did:key`
+- verify the signature against `cnf.kid` using `ecdsa-p256-sha256`
 - verify that `Atproto-Space-Audience` equals the audience DID derived from the request
 
 The signature does not bind the HTTP method or URI. It MAY be reused with the same authorization token and audience DID until the token expires. Replay against the same audience is allowed.
