@@ -159,7 +159,7 @@ Reading a space is gated by a **space credential** issued by the space authority
 - **which user** is being acted for: established by a **delegation token** minted by the user's PDS
 - **which application** is acting: established by an optional **client attestation** signed by the application itself
 
-The delegation token and a DPoP proof are always required. The client attestation is required only when a space gates on client app identity. An application obtains a credential by getting a delegation token from a user's PDS, then presenting that token and a DPoP proof (together with its client attestation, if needed) to the space authority in exchange for a credential. The authority decides whether to issue the credential. The protocol does not define the decision procedure (the policies of the PDS's space-management implementation are described under [`simplespace`](#required-pds-space-management-simplespace)).
+The delegation token and a DPoP proof are always required. The client attestation is required only when a space gates on client app identity. An application obtains a credential by getting a delegation token from a user's PDS, then presenting that token and a DPoP proof (together with its client attestation, if needed) to the space authority in exchange for a credential. The authority decides whether to issue the credential. The protocol does not define the decision procedure; it is determined by the space's [`policy`](#space-policy) (for the baseline management surface, see [`simplespace`](#required-baseline-policy-simplespace)).
 
 A space credential is a whole-space capability presented to many independent hosts, so it is [DPoP-bound](#dpop-binding) to the application it was issued to rather than being a bearer token.
 
@@ -548,9 +548,13 @@ This default follows the same dynamic-update semantics as a [permission set](htt
 
 **Space management operations** are governed by `manage`, which takes the same `create`/`update`/`delete` verbs applied to the space itself rather than to its records. `manage` ignores `collection`. It is omitted by default, so an ordinary record-access grant confers no administrative capability.
 
-The protocol does not enumerate what each `manage` verb permits, because space management is implementation-defined (see [`simplespace`](#required-pds-space-management-simplespace)). Each space-management implementation maps the verbs onto its own administrative surface. For example, in `com.atproto.simplespace`, `manage=update` authorizes `com.atproto.simplespace.updateSpace` as well as `putMember` and `removeMember`.
+The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.space.createSpace`, `updateSpace`, `deleteSpace`) and, in addition, onto whatever administrative methods the space's [`policy`](#space-policy) defines. The protocol does not enumerate the latter, because they are policy-defined.
 
-`manage=create` authorizes creating a space of the given `spaceType` under the given authority. Unlike every other operation, it concerns a space that does not yet exist, so scoping it to a concrete `skey` is unusual. It is typically granted with `skey=*` ("this app may create spaces of this type").
+> [!EXAMPLE]
+>
+> For example, on a `simplespace` space, `manage=update` authorizes the policy's own `com.atproto.simplespace.putConfig`, `putMember`, and `removeMember`.
+
+`manage=create` authorizes creating a space (via `com.atproto.space.createSpace`) of the given `spaceType` under the given authority. Unlike every other operation, it concerns a space that does not yet exist, so scoping it to a concrete `skey` is unusual. It is typically granted with `skey=*` ("this app may create spaces of this type").
 
 ### Examples
 
@@ -629,34 +633,58 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `deleteRecord` | pds | procedure | OAuth | Delete a record. |
 | `applyWrites` | pds | procedure | OAuth | Apply a batch of creates, updates, and deletes to one repo atomically. |
 | `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in. |
+| `createSpace` | pds | procedure | OAuth (`manage`) | Create a space with a given [`policy`](#space-policy); caller becomes the authority. |
+| `updateSpace` | pds | procedure | OAuth (`manage`) | Change a space's [`policy`](#space-policy) (policy migration). |
+| `deleteSpace` | pds | procedure | OAuth (`manage`) | Delete a space. |
+| `getSpace` | pds | query | OAuth `read_self` / space credential | Describe a space: its identity and current [`policy`](#space-policy). |
 | `registerNotify` | repo/host | procedure | space credential | Register a service to be notified of writes. On the space host, subscribes to the whole space. On a repo host with a `repo`, subscribes to that repo. |
 | `unregisterNotify` | repo/host | procedure | space credential | Withdraw a `registerNotify` registration. |
 | `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `hash`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
 | `notifySpaceDeleted` | syncer | procedure | service auth | Notify that a space was deleted and its data should be dropped. Sent by the authority to the syncers registered for the space. |
 
-## Required PDS space management: `simplespace`
+## Space policy
 
-The protocol does not specify how spaces are created, how an authority decides who may read them, or which writers it tracks and forwards notifications for. Those are the concern of each space-management implementation, which sits above the protocol and is identified by its own lexicon namespace.
+The protocol does not specify how a space is configured, how an authority decides who may read it, or which writers it tracks and forwards notifications for. Those are the concern of the space's **policy**: a single space property that selects the management implementation governing the space.
 
-`com.atproto.simplespace` is the space-management implementation that every PDS MUST support. It gives applications a baseline that is available on every account's PDS to build against. `simplespace` spaces are anchored on a user's own DID and governed by an explicit member list (or the `public` and `managing-app` policies described below).
+A `policy` is a string (a Lexicon `type: "string"` value) naming a policy *token* (a Lexicon `type: "token"` value), for example `com.atproto.simplespace.policy`. The field is an open string, so a new policy can be introduced without any change to this specification. A policy defines its own access rules, configuration, and XRPC methods, and a space is governed entirely by its current `policy`. By convention a policy token's namespace also houses that policy's methods (e.g. `com.atproto.simplespace.*`); strictly, though, any token may be tied to any methods by its implementer.
 
-`simplespace` is neither the only permitted implementation nor a privileged one. It is simply the one that PDSs are required to support. Other space types may define their own management implementations and are full protocol participants, but they are hosted on bespoke space services rather than on the PDS.
+A space is created, migrated, and deleted through a small set of policy-agnostic methods under `com.atproto.space`:
 
-The management procedures are called with an OAuth credential with the relevant `manage` scope. The read queries require only read access: `getSpace` accepts an OAuth `read_self` grant or a space credential, and `listMembers` accepts a `read_self` grant.
+| Method | Type | Auth | Description |
+|---|---|---|---|
+| `createSpace` | procedure | OAuth (`manage=create`) | Create a space with a given `policy`. The caller becomes the authority. |
+| `updateSpace` | procedure | OAuth (`manage=update`) | Change a space's `policy` (see [policy migration](#policy-migration) below). |
+| `deleteSpace` | procedure | OAuth (`manage=delete`) | Delete the space (see [Space deletion](#space-deletion)). |
+| `getSpace` | query | OAuth `read_self` / space credential | Describe a space: its identity and current `policy`. |
+
+`createSpace` sets only the `policy`. Policy-specific configuration is applied afterward through that policy's own methods (for `simplespace`, [`putConfig`](#required-baseline-policy-simplespace) and `putMember`). A PDS MUST support the [`com.atproto.simplespace.policy`](#required-baseline-policy-simplespace) baseline, so that a management surface is available on every account. It MAY support additional policies. A policy for a shared space anchored elsewhere may be served by a bespoke space service rather than a PDS.
+
+### Policy migration
+
+Because `policy` is an ordinary mutable property, a space can move from one policy to another through `updateSpace`. For example, a space holding fully-private data under a minimal `com.atproto.privatespace.policy` (owner-only: no members, configuration, or app-gating — suitable for personal data such as user settings) can later be opened up by migrating to `com.atproto.simplespace.policy` and adding members. An implementation applies the destination policy's rules and configuration from the point of migration.
+
+> **Note:** `simplespace` bundles several access modes (`public`, `member-list`, `managing-app`) behind a single policy with its own configuration. A future revision of this spec could improve separation of concerns by splitting it into dedicated, simpler policies — a public policy, a member-list policy, and a managing-app policy — each selected directly by the space's `policy` rather than through a nested configuration field.
+
+## Required baseline policy: `simplespace`
+
+`com.atproto.simplespace.policy` is the policy that every PDS MUST support. It gives applications a baseline that is available on every account's PDS to build against. A `simplespace` space is anchored on a user's own DID and governed by an explicit member list (or the `public` and `managing-app` modes described below).
+
+`simplespace` is neither the only permitted policy nor a privileged one. It is simply the one that PDSs are required to support. Other space types may define their own policies and are full protocol participants, but they are hosted on bespoke space services rather than on the PDS.
+
+`simplespace` defines its own configuration and methods; the space itself only records `policy` set to `com.atproto.simplespace.policy`. Its management procedures are called with an OAuth credential carrying the relevant `manage` scope. The read queries require only read access: `getConfig` accepts an OAuth `read_self` grant or a space credential, and `listMembers` accepts a `read_self` grant.
 
 | Method | Type | Description |
 |---|---|---|
-| `createSpace` | procedure | Create a space (caller becomes the authority) |
-| `updateSpace` | procedure | Update config (more details below) |
-| `deleteSpace` | procedure | Delete the space (see [Space deletion](#space-deletion)). |
-| `getSpace` | query | Describe a space and its configuration. |
+| `putConfig` | procedure | Set the space's `readPolicy`, `writePolicy`, `appAccess`, and `managingApp`. |
+| `getConfig` | query | Read the space's `simplespace` configuration. |
 | `putMember` | procedure | Add a member (by DID) or update their read and write access. |
 | `removeMember` | procedure | Remove a member (by DID). |
 | `listMembers` | query | List the current members of a space and their read and write access. |
+| `checkUserAccess` | procedure | Served by the `managingApp` (not the PDS); asks whether to authorize a user (see [The managing app](#the-managing-app)). |
 
 ### Configuration
 
-`simplespace` spaces can be further configured along a few dimensions. This configuration is updated through `updateSpace` and is surfaced through `getSpace`.
+`simplespace` spaces can be further configured along a few dimensions. This configuration is updated through `putConfig` and is surfaced through `getConfig`. These fields are internal to `simplespace` and are distinct from the space's `policy` property, which selects `simplespace` itself.
 
 | Field | Values | Description |
 |---|---|---|
