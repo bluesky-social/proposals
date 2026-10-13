@@ -34,7 +34,7 @@ Atproto spaces provide **access control, not confidentiality**. They are [not en
 | Record authority | User DID | User DID |
 | URI authority | User DID | Space authority DID |
 | Commit | Merkle Search Tree root | LtHash set-hash digest |
-| Authentication | Signature - rebroadcastable, archival | HMAC - deniable on rebroadcast |
+| Commit authenticity | Signature - rebroadcastable, archival | HMAC - deniable on rebroadcast |
 | Addressing | Traditional `at://` URI | `at://` URI with `space` segment |
 | Access | Public | Gated by space credential |
 
@@ -359,11 +359,13 @@ Both operations are commutative, so the state depends only on the current set of
 
 The commit's `hash` is `sha256(state)`, a 32-byte digest of the 2048-byte buffer. The repo host maintains the full state. Only the `hash` is carried in a commit.
 
-### Commit authentication
+### Commit authenticity
 
-The syncer and repo host establish a shared secret and use it to authenticate commits with a MAC.
+Atproto roots authority in DIDs rather than network locations. Space repos therefore need a way to verify data against a key published in the author's DID document.
 
-This technique follows the same basic pattern as TLS's [Encrypted ClientHello (ECH)](https://www.rfc-editor.org/rfc/rfc9849): a server publishes a public key, and a client uses it to establish a shared secret and authenticate data with MACs. Either side can produce the MACs, so they don't provide rebroadcastable proof.
+Unlike public broadcast data, permissioned data should not be rebroadcastable outside its access boundary. As such, space repos do not use asymmetric commit signatures. Rather, the syncer and repo host establish a shared secret, which the host uses to compute a MAC for the commit or record. The syncer checks the MAC with the same secret.
+
+MACs are not included in the serialized repo data itself. Rather, they are carried in an HTTP header described [below](#authenticity-headers).
 
 #### Encryption key
 
@@ -382,15 +384,15 @@ The mechanism described below for establishing a shared secret is known as a **k
 
 #### Shared secret
 
-When calling `getLatestCommit`, `getRepo`, or `listRepoOps`, the syncer:
+To request a MAC, the syncer:
 
 1. Resolves the author's `#atproto_kem` public key.
 2. Generates a new ephemeral P-256 keypair for this request.
 3. Performs ECDH using the new private key and the author's public key.
 4. Derives a 32-byte `shared_secret` from the ECDH result as described below.
-5. Keeps `shared_secret` and sends its new public key as a `did:key` string in the `enc` query parameter.
+5. Keeps `shared_secret` and sends its new public key in the request header's `enc` field.
 
-The syncer generates a new keypair for each request, including retries and new pages. The `did:key` in `enc` must identify a P-256 key.
+The syncer generates a new keypair for each request carrying `enc`, including retries and new pages.
 
 After authorizing the request, the repo host decodes the `did:key` and performs ECDH using the author's private key and the syncer's ephemeral public key. The host then derives the same `shared_secret`.
 
@@ -412,9 +414,34 @@ info = uint16be(32) || prefix || "shared_secret" || keys
 shared_secret = HKDF-SHA256(input, salt="", info=info, length=32)
 ```
 
+#### Authenticity headers
+
+When calling a method that supports authenticity checks, a syncer can request a MAC by including an `Atproto-Content-Integrity` header. Its value is a [Structured Field Dictionary](https://www.rfc-editor.org/rfc/rfc9651#section-3.2):
+
+```http
+Atproto-Content-Integrity: type="atproto-space-repo", ver=1, enc="did:key:zDna..."
+```
+
+`enc` is the syncer's ephemeral P-256 public key as a `did:key`, abbreviated above.
+
+The host includes the 32-byte MAC in its response as a base64 byte sequence:
+
+```http
+Atproto-Content-Integrity: type="atproto-space-repo", ver=1, hmac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
+Vary: Atproto-Content-Integrity
+```
+
+The fields shown are required. The response's `type` and `ver` match the request's and, for commits, the commit metadata. Unsupported types or versions, malformed headers, and invalid keys are errors.
+
+Omitting the request header skips key agreement and MAC generation, and the host omits the response header. The syncer can still check hashes and CIDs, but relies on HTTPS for authenticity. This is generally not recommended, though may be useful for debugging or low-stakes use cases. Access authorization still applies.
+
+Methods supporting authenticity headers include `Atproto-Content-Integrity` in `Vary`, even when no MAC was requested.
+
+If MAC verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
+
 #### Commit MAC
 
-The context below uses UTF-8 strings. Each variable field is prefixed with its byte length as a big-endian `uint16`.
+The context below uses the commit's `space`, `did` (as `author`), and `rev` as UTF-8 strings. Each variable field is prefixed with its byte length as a big-endian `uint16`.
 
 ```
 context = "atproto-space-v1"          // fixed protocol tag
@@ -425,18 +452,22 @@ context = "atproto-space-v1"          // fixed protocol tag
 mac = HMAC-SHA256(shared_secret, context || hash)
 ```
 
-The shared secret is the MAC key. The MAC covers both the context and the raw commit digest, `hash`.
+The MAC goes in the response header's `hmac` field. The protocol tag `atproto-space-v1` corresponds to `type="atproto-space-repo"` and `ver=1`.
 
-The authenticated commit (`com.atproto.space.defs#authenticatedCommit`):
+The syncer checks that the commit's `did` and `space` match the requested repo, then recomputes the MAC and compares it with `hmac` in constant time.
 
-| Field | Type | Description |
-|---|---|---|
-| `ver` | integer | commit format version, currently `1` |
-| `hash` | bytes | `sha256` of the LtHash state (32 bytes) |
-| `mac` | bytes | `HMAC-SHA256(shared_secret, context || hash)` (32 bytes) |
-| `rev` | string | commit revision (TID), also bound into `context` |
+#### Record MAC
 
-If verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
+A single record uses `type="atproto-space-record"` and `ver=1`. The MAC covers its full [record URI](#addressing) and CID:
+
+```
+context = "atproto-space-record-v1"
+   || uint16be(len(uri)) || uri // full record URI, UTF-8
+
+mac = HMAC-SHA256(shared_secret, context || record_cid_bytes)
+```
+
+`record_cid_bytes` is the binary CID encoding. The syncer checks that the URI matches the request, verifies the MAC in constant time, then checks the record's DAG-CBOR encoding against the CID.
 
 ### Repo serialization
 
@@ -444,15 +475,26 @@ A space repo may be serialized to a [CAR file](https://dasl.ing/car.html), the s
 
 The CAR header declares **two roots**, in order:
 
-1. the **commit** — the [`authenticatedCommit`](#commit-mac) block described above
+1. the **commit** — the metadata block described below
 2. the **index** — a [DRISL](https://dasl.ing/drisl.html) (DAG-CBOR) map from `"{collection}/{rkey}"` to the record's CID, with keys in canonical DAG-CBOR map order (shortest key first, then bytewise)
+
+The commit (`com.atproto.space.defs#commit`) contains:
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | fixed to `atproto-space-repo` |
+| `ver` | integer | commit format version, currently `1` |
+| `did` | string | author DID of the repo |
+| `space` | string | space URI (`at://authority/space/type/skey`) |
+| `rev` | string | commit revision (TID) |
+| `hash` | bytes | `sha256` of the LtHash state (32 bytes) |
 
 The record blocks follow the two roots, and MUST appear in the same order as their index entries.
 
 The serialization carries the information needed to reconstruct and verify the repo, and a consumer can validate it as a stream:
 
-1. Verify the commit's MAC. The commit's `hash` is now trusted.
-2. Fold each index entry's `{collection}/{rkey}/{record_cid}` into a running [set hash](#commit-digest) as it is read, then compare the result against the commit's `hash`. This authenticates the whole index without reading a single record.
+1. If a MAC was requested, verify it from the response header. The commit's `hash` is then trusted.
+2. Fold each index entry's `{collection}/{rkey}/{record_cid}` into a running [set hash](#commit-digest) as it is read, then compare the result against the commit's `hash`. This checks the whole index without reading a single record.
 3. Verify each record block against its own CID as it streams past.
 
 ## Sync
@@ -467,7 +509,7 @@ To advance, a syncer calls `com.atproto.space.listRepoOps` with a `since` revisi
 
 By default `listRepoOps` inlines each created or updated record's value alongside its operation, so a syncer advances in a single call without a `getRecord` round-trip per write. Only the current value for a path is inlined. If a record has been updated or deleted by a later operation, the host omits the intermediate (now stale) values. A syncer may set `excludeValues` to receive only the operation metadata (for example, to drive selective `getRecord` calls).
 
-If a given oplog response includes the last available operation that occurred to a repo, then the response must also include the member's current [commit](#commit-authentication). The syncer verifies the commit's MAC and compares the commit's `hash` against its own running set hash. If they match, the syncer is fully in sync and the commit's MAC authenticates that state. If they do not, the syncer has diverged and must fall back to a recovery process.
+If a given oplog response includes the last available operation that occurred to a repo, then the response must also include the member's current [commit](#repo-serialization). The syncer verifies the response MAC, if requested, and compares the commit's `hash` against its own running set hash. If they match, the syncer is fully in sync. If they do not, the syncer has diverged and must fall back to a recovery process.
 
 Sync is self-healing because its correctness rests on the set hash comparison rather than on receiving every operation. A missed operation is detected on a subsequent sync. A total disjunction in repository history is also recognizable, and is recovered from by syncing the repository contents in their entirety.
 
@@ -477,7 +519,7 @@ The oplog is a transport optimization rather than a committed data structure. It
 
 In cases in which a syncer cannot proceed incrementally, it must recover by syncing the full state of the repository.
 
-To do so, a syncer fetches the whole repo as a [serialized CAR](#repo-serialization) from `com.atproto.space.getRepo`. It folds the index into a running set hash and compares that against the authenticated commit to authenticate the index, then validates each record block against its index CID as it streams past, rebuilding its local copy. A syncer replacing an existing copy diffs the recovered structure against what it holds and keeps only the records it is missing.
+To do so, a syncer fetches the whole repo as a [serialized CAR](#repo-serialization) from `com.atproto.space.getRepo`. It verifies the response MAC if requested, folds the index into a running set hash and compares that against the commit's `hash`, then validates each record block against its index CID as it streams past, rebuilding its local copy. A syncer replacing an existing copy diffs the recovered structure against what it holds and keeps only the records it is missing.
 
 For the narrower case of *healing* a copy that has only slightly diverged, a syncer may prefer to avoid transferring the whole repo. It can fetch the latest commit through `com.atproto.space.getLatestCommit`, enumerate the repo's structure (paths → CIDs) with `com.atproto.space.listRecords` using `excludeValues`, diff that lightweight listing against its local copy, and fetch just the differing records with `com.atproto.space.getRecord`. This trades the single `getRepo` round-trip for a smaller total transfer when most of the repo is already held.
 
@@ -639,6 +681,8 @@ These methods fall into a few loose groups:
 
 This grouping describes kinds of methods, not separate services. A single service (e.g. a PDS) is usually both a repo host for its accounts and a space host for the spaces anchored on it.
 
+`getLatestCommit`, `getRepo`, and `listRepoOps` support [commit MACs](#commit-mac); `getRecord` supports [record MACs](#record-mac).
+
 | Method | Role | Type | Auth | Description |
 |---|---|---|---|---|
 | `getSpaceCredential` | host | procedure | delegation token + [HTTP Message Signature](#credential-key-binding) (+ client attestation) | Exchange a delegation token for a space credential. |
@@ -647,9 +691,9 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
 | `getBlob` | repo | query | OAuth / space credential | Fetch a blob by CID. |
 | `listBlobs` | repo | query | OAuth / space credential | List the blob CIDs referenced by records in a repo. |
-| `getLatestCommit` | repo | query | OAuth / space credential | The current [commit](#commit-authentication) for a repo. Requires `enc`. |
-| `getRepo` | repo | query | OAuth / space credential | Download a whole repo as a [serialized CAR](#repo-serialization) for full-state backfill. Requires `enc`. |
-| `listRepoOps` | repo | query | OAuth / space credential | Primary sync mechanism. A repo's [operation log](#incremental-sync) since a given revision, inlining record values by default. Set `excludeValues` for metadata-only entries. Requires `enc`. |
+| `getLatestCommit` | repo | query | OAuth / space credential | The current [commit](#repo-serialization) for a repo. |
+| `getRepo` | repo | query | OAuth / space credential | Download a whole repo as a [serialized CAR](#repo-serialization) for full-state backfill. |
+| `listRepoOps` | repo | query | OAuth / space credential | Primary sync mechanism. A repo's [operation log](#incremental-sync) since a given revision, inlining record values by default. Set `excludeValues` for metadata-only entries. |
 | `getDelegationToken` | pds | query | OAuth | Mint a [delegation token](#delegation-token) for a space. Served by the requesting user's PDS. |
 | `createRecord` | pds | procedure | OAuth | Create a record in the caller's repo in the specified space. |
 | `putRecord` | pds | procedure | OAuth | Create or update a record. |
@@ -754,7 +798,7 @@ An account's participation in a space is tied to the same DID as its public atpr
 
 **Migration.** Moving a space repo between hosts functions the same as migrating a public repository. The main difference is that a user has many space repos rather than one, so account migration flows will need to enumerate and track all of an account's space repos (via `listSpaces`) and the blobs associated with them (via `listBlobs`).
 
-**Key rotation.** The account rotates its KEM key by replacing `#atproto_kem` in its DID document. Requests using the old key may fail MAC verification and need to [retry](#commit-mac). This does not change repo hashes or revisions.
+**Key rotation.** The account rotates its KEM key by replacing `#atproto_kem` in its DID document. Requests using the old key may fail MAC verification and need to [retry](#authenticity-headers). This does not change repo hashes or revisions.
 
 **Deactivation & deletion.** Deactivation and deletion function exactly as they do for [public broadcast](https://atproto.com/specs/account#hosting-status). If an account is deleted, downstream services are expected to delete all data associated with the account, whether public or in spaces. If an account is deactivated, downstream services are expected to stop serving all data associated with it, whether public or in spaces.
 
