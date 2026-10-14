@@ -402,9 +402,9 @@ The `ver` field is fixed at `1` for this version of the protocol. It corresponds
 
 ### Repo serialization
 
-A space repo is serialized as a [STAR file](https://tangled.org/microcosm.blue/star/tree/main/v1-star). It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
+A space repo is serialized as a [STAR-lite v1 file](https://tangled.org/microcosm.blue/star/tree/main/v1-star) (STAR for short). It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
 
-STAR is an archive format with a metadata header followed by a streaming key/value map of record paths to values.
+STAR is an archive format with a metadata header followed by a sequence of key/value pairs. The `atproto-space-repo` profile defined here uses record paths as keys and encoded records as values.
 
 A STAR file takes the following form:
 ```
@@ -412,13 +412,15 @@ A STAR file takes the following form:
 [ magic | len | metadata ] [ len | path | len | record ] [ len | path | len | record ]...
 ```
 
-The magic bytes at the start are `0x2A 0x6C 0x01 0x00`. Each `len` is an unsigned varint giving the byte length of the following item. The header metadata is a DRISL map, at most 8192 bytes, identifying the repo and carrying its signed commit.
+The magic bytes are `0x2A 0x6C 0x01 0x00`. Each `len` is an unsigned varint giving the byte length of the following item. Framing and parsing follow STAR's rules.
+
+The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map, containing `$type` set to `atproto-space-repo`, the repo author's `did`, the `space` URI, and all fields of the [signed commit](#commit-signature).
 
 Here is an example metadata object for a space repo:
 ```json
 {
   "$type": "atproto-space-repo",
-  "did": "did:example:alice", 
+  "did": "did:example:alice",
   "space": "at://did:example:forum/space/com.atmoboards.forum/general",
   "ver": 1,                 // commit format version
   "rev": "3mwcj3b6uak2f",   // commit revision (TID)
@@ -433,9 +435,9 @@ The body contains every record in the repo:
 
 - Each key is the UTF-8 encoding of a valid record path, `{collection}/{rkey}`
 - Each value is the record's canonical DRISL encoding
-- Records MUST appear in strict lexicographic order of the keys, with no duplicate keys.
+- Records MUST appear in strict lexicographic order of the key bytes, with no duplicate keys.
 
-The serialization carries the information needed to reconstruct and verify a repo snapshot, and a consumer can validate it as a stream:
+Pairs continue until EOF; an empty repo has none. A consumer can reconstruct and verify the snapshot as a stream:
 
 1. Validate the metadata, including `$type` and the commit version, and check that `did` and `space` match the requested repo. Verify the commit's signature and MAC using that context.
 2. Starting with an empty [set hash](#commit-digest), read each path/record pair, validate the path and record encoding, compute the record's CID, and fold `{collection}/{rkey}/{record_cid}` into the running set hash.
