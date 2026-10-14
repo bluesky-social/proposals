@@ -411,7 +411,7 @@ The `ver` field is fixed at `1` for this version of the protocol. It corresponds
 
 ### Repo serialization
 
-A space repo is serialized as a [STAR file](https://tangled.org/microcosm.blue/star/blob/star-lite-v1-generic/star-lite/spaces-archive.md). It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
+A space repo is serialized as a [STAR file](https://tangled.org/microcosm.blue/star/tree/main/v1-star). It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
 
 STAR is an archive format with a metadata header followed by a streaming key/value map of record paths to values.
 
