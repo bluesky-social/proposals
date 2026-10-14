@@ -428,10 +428,10 @@ shared_secret = HKDF-SHA256(input, salt="", info=info, length=32)
 
 #### Authenticity headers
 
-When calling a method that supports authenticity checks, a syncer can request a MAC by including an `Atproto-Content-Authenticity` header. Its value is a [Structured Field Dictionary](https://www.rfc-editor.org/rfc/rfc9651#section-3.2):
+When calling a method that supports authenticity checks, a syncer can request a MAC by including an `Atproto-Content-Mac` header. Its value is a [Structured Field Dictionary](https://www.rfc-editor.org/rfc/rfc9651#section-3.2):
 
 ```http
-Atproto-Content-Authenticity: type="atproto-space-repo", ver=1, enc="did:key:zDna..."
+Atproto-Content-Mac: type="atproto-space-repo", ver=1, enc="did:key:zDna..."
 ```
 
 `enc` is the syncer's ephemeral P-256 public key as a `did:key`, abbreviated above.
@@ -439,8 +439,8 @@ Atproto-Content-Authenticity: type="atproto-space-repo", ver=1, enc="did:key:zDn
 The host includes the 32-byte MAC in its response as a base64 byte sequence, and lists the header in `Vary` (even when no MAC was requested):
 
 ```http
-Atproto-Content-Authenticity: type="atproto-space-repo", ver=1, mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
-Vary: Atproto-Content-Authenticity
+Atproto-Content-Mac: type="atproto-space-repo", ver=1, mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
+Vary: Atproto-Content-Mac
 ```
 
 The fields shown are required. The response's `type` and `ver` match the request's and, for commits, the commit metadata. Unsupported types or versions, malformed headers, and invalid keys are errors.
