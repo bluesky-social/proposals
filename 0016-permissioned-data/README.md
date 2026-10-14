@@ -421,7 +421,7 @@ A STAR file takes the following form:
 [ magic | len | metadata ] [ len | path | len | record ] [ len | path | len | record ]...
 ```
 
-The magic bytes at the start are `0x2A 0x6C 0x01`. Each `len` is an unsigned varint giving the byte length of the following item. The header metadata is a DRISL map, at most 8192 bytes, identifying the repo and carrying its signed commit.
+The magic bytes at the start are `0x2A 0x6C 0x01 0x00`. Each `len` is an unsigned varint giving the byte length of the following item. The header metadata is a DRISL map, at most 8192 bytes, identifying the repo and carrying its signed commit.
 
 Here is an example metadata object for a space repo:
 ```json
