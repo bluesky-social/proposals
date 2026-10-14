@@ -99,12 +99,14 @@ A space's **authority** is the DID at the root of the space and the issuer of it
 
 A space authority is resolved through two entries in its DID document:
 
-- a **verification method** with id `#atproto_space`: the public key used to verify the space's credentials
+- a **verification method** with id `#atproto_space`: the **space signing key**, used to sign the space's credentials
 - a **service** entry with id `#atproto_space_host`: the endpoint of the space host (with `AtprotoSpaceHost` type)
 
-Both entries are optional. When `#atproto_space` is absent, the space signing key falls back to the account's `#atproto` signing key. Similarly, when `#atproto_space_host` is absent, the space host falls back to the account's `#atproto_pds` service endpoint. An authority MAY instead publish the dedicated entries to point at distinct key material or a distinct host, or MAY explicitly set them to the same values as `#atproto` and `#atproto_pds`.
+Both entries are optional. When `#atproto_space` is absent, the space signing key falls back to the account's `#atproto` key. When `#atproto_space_host` is absent, the space host falls back to the account's `#atproto_pds` endpoint. If either entry is present but malformed, resolution fails rather than falling back.
 
-If the `#atproto_space` key entry is present but malformed or invalid, implementations should return an error instead of falling back to the `#atproto` key. Similarly, if the `#atproto_space_host` service entry is malformed or invalid, implementations should return an error instead of falling back to the `#atproto_pds` entry.
+A space credential is valid only if it is signed by the resolved space signing key. Once an account publishes `#atproto_space`, its `#atproto` key can no longer issue credentials for its spaces. This lets an account run its spaces on a separate host without handing over the key that signs its public repo.
+
+The authority also sends service auth in its space authority role: [`notifyCredentialRevoked`](#credential-expiration-and-revocation), [`notifySpaceDeleted`](#space-deletion), forwarded [`notifyWrite`](#write-notifications), and [`checkUserAccess`](#the-managing-app). Receivers accept either `#atproto` or `#atproto_space` for these, identified by the token's `kid`. All other service auth from the account, and its [delegation tokens](#delegation-token), are accepted only with `#atproto`, following the usual [XRPC rule](https://atproto.com/specs/xrpc#inter-service-authentication-jwt). Otherwise a space host could act as the account outside its spaces.
 
 ### Space type
 
@@ -241,7 +243,7 @@ The authority verifies the attestation by resolving `iss` (the `client_id`) to t
 
 ### Space credential
 
-A **space credential** is the token an application presents to a repo host to read a repo in a space. The authority mints it in exchange for a delegation token, requested through [`com.atproto.space.getSpaceCredential`](#xrpc-api). It is short-lived (default 10 minutes, maximum 60 minutes) and signed by the space authority's signing key, so any repo host can verify it against the authority's key without contacting the authority.
+A **space credential** is the token an application presents to a repo host to read a repo in a space. The authority mints it in exchange for a delegation token, requested through [`com.atproto.space.getSpaceCredential`](#xrpc-api). It is short-lived (default 10 minutes, maximum 60 minutes) and signed by the [space signing key](#space-authority), so any repo host can verify it against the authority's key without contacting the authority.
 
 A space credential is multi-use. A single credential is intended to be reused across every repo host serving a repo in the space as well as against a given host for repeated requests, until it expires.
 
@@ -258,7 +260,7 @@ Example JWT header and payload (before base64url encoding and signing):
 {
   "typ": "atproto-space-credential+jwt",
   "alg": "ES256K", // or ES256
-  "kid": "#atproto_space" // Key Identifier - "#atproto_space" or "#atproto"
+  "kid": "#atproto_space" // Key Identifier - the resolved space signing key, "#atproto_space" or "#atproto"
 }
 {
   "iss": "did:example:space_did", // Space authority DID
