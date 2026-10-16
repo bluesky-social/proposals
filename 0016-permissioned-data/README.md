@@ -97,14 +97,7 @@ A new `space-ref` Lexicon string format is defined for references to just a spac
 
 A space's **authority** is the DID at the root of the space and the issuer of its [credentials](#access-control). It may be a user's own DID as for personal data such as bookmarks or mutes. Or it may be a dedicated DID which lets a shared space transfer between users independently of any individual account.
 
-A space authority is resolved through two entries in its DID document:
-
-- a **verification method** with id `#atproto_space`: the public key used to verify the space's credentials
-- a **service** entry with id `#atproto_space_host`: the endpoint of the space host (with `AtprotoSpaceHost` type)
-
-Both entries are optional. When `#atproto_space` is absent, the space signing key falls back to the account's `#atproto` signing key. Similarly, when `#atproto_space_host` is absent, the space host falls back to the account's `#atproto_pds` service endpoint. An authority MAY instead publish the dedicated entries to point at distinct key material or a distinct host, or MAY explicitly set them to the same values as `#atproto` and `#atproto_pds`.
-
-If the `#atproto_space` key entry is present but malformed or invalid, implementations should return an error instead of falling back to the `#atproto` key. Similarly, if the `#atproto_space_host` service entry is malformed or invalid, implementations should return an error instead of falling back to the `#atproto_pds` entry.
+A space authority is resolved like any other atproto account. Its `#atproto_pds` service endpoint is the space host, and its `#atproto` key signs the space's credentials and any service auth it sends as the authority.
 
 ### Space type
 
@@ -196,7 +189,7 @@ Example JWT header and payload (before base64url encoding and signing):
 {
   "iss": "did:example:user_did", // User DID
   "sub": "at://did:example:space_did/space/com.example.space_type/space_key", // Space being requested
-  "aud": "did:example:space_did#atproto_space_host", // Space host (service fragment of the authority DID)
+  "aud": "did:example:space_did#atproto_pds", // Space host (service fragment of the authority DID)
   "iat": 1738368000, // Issued-at (unix seconds)
   "exp": 1738368060, // iat + 60 (60 seconds)
   "jti": "f47ac10b58cc4372a5670e02b2c3d479" // random nonce
@@ -230,7 +223,7 @@ A **client attestation** is a short-lived, single-use JWT that the application p
 {
   "iss": "https://app.example.com/client-metadata.json", // The client_id
   "sub": "https://app.example.com/client-metadata.json", // The client_id (== iss)
-  "aud": "did:example:space_did#atproto_space_host", // Space host being asked for a credential
+  "aud": "did:example:space_did#atproto_pds", // Space host being asked for a credential
   "iat": 1738368000, // Issued-at (unix seconds)
   "exp": 1738368060, // short-lived
   "jti": "b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8" // random nonce, replay protection
@@ -241,7 +234,7 @@ The authority verifies the attestation by resolving `iss` (the `client_id`) to t
 
 ### Space credential
 
-A **space credential** is the token an application presents to a repo host to read a repo in a space. The authority mints it in exchange for a delegation token, requested through [`com.atproto.space.getSpaceCredential`](#xrpc-api). It is short-lived (default 10 minutes, maximum 60 minutes) and signed by the space authority's signing key, so any repo host can verify it against the authority's key without contacting the authority.
+A **space credential** is the token an application presents to a repo host to read a repo in a space. The authority mints it in exchange for a delegation token, requested through [`com.atproto.space.getSpaceCredential`](#xrpc-api). It is short-lived (default 10 minutes, maximum 60 minutes) and signed by the [space authority's](#space-authority) signing key, so any repo host can verify it against the authority's key without contacting the authority.
 
 A space credential is multi-use. A single credential is intended to be reused across every repo host serving a repo in the space as well as against a given host for repeated requests, until it expires.
 
@@ -258,7 +251,7 @@ Example JWT header and payload (before base64url encoding and signing):
 {
   "typ": "atproto-space-credential+jwt",
   "alg": "ES256K", // or ES256
-  "kid": "#atproto_space" // Key Identifier - "#atproto_space" or "#atproto"
+  "kid": "#atproto" // Key Identifier - MUST be "#atproto"
 }
 {
   "iss": "did:example:space_did", // Space authority DID
