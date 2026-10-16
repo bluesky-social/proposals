@@ -156,13 +156,16 @@ The **space key** (`skey`) is a string distinguishing spaces of the same type un
 
 Reading a space is gated by a **space credential** issued by the space authority.
 
-The authority issues one based on two axes:
+The authority can base its decision on two signed assertions:
+
 - **which user** is being acted for: established by a **delegation token** minted by the user's PDS
-- **which application** is acting: established by an optional **client attestation** signed by the application itself
+- **which application** is acting: established by a **client attestation** signed by the application itself
 
-The delegation token is always required. The client attestation is required only when a space gates on client app identity. An application obtains a credential by getting a delegation token from a user's PDS, then presenting that token and signature (together with its client attestation, if needed) to the space authority in exchange for a credential. The authority decides whether to issue the credential. The protocol does not define the decision procedure (the policies of the PDS's space-management implementation are described under [`simplespace`](#required-pds-space-management-simplespace)).
+A space authority may require either assertion, both, or neither. The authority MUST NOT reject a request solely because it includes a valid assertion that the space does not require. Spaces that require neither offer public access, though syncing applications must still obtain a space credential.
 
-Some spaces do not require a client attestation. The requirement can be communicated at the application layer or be detected by simply making a request for a credential without an attestation and inspecting the returned error type.
+An application requests a credential by presenting any required assertions to the space authority. The authority decides whether to issue the credential. The protocol does not define the decision procedure (the policies of the PDS's space-management implementation are described under [`simplespace`](#required-pds-space-management-simplespace)).
+
+These requirements are generally communicated at the application layer, but can also be discovered from the error type returned when a required assertion is missing.
 
 ### Credential key binding
 
@@ -209,11 +212,11 @@ The signature for the delegation token is computed using the regular JWT process
 
 #### Credential key binding
 
-The application sends an HTTP Message Signature covering the `Authorization` field in its `getSpaceCredential` request. After validating the delegation token, the space host MUST validate the `atproto-space` signature and require its `keyid` to be a P-256 `did:key`. It then uses the signature's `keyid` as the space credential's `cnf.kid`. The covered component list MUST be exactly `("authorization")`. If the `alg` signature parameter is present, it MUST be `ecdsa-p256-sha256`.
+The application sends an HTTP Message Signature in its `getSpaceCredential` request. In addition to validating any supplied delegation token, the space host MUST validate the `atproto-space` signature and require its `keyid` to be a P-256 `did:key`. It then uses the signature's `keyid` as the space credential's `cnf.kid`. The covered component list MUST be exactly `("authorization")` when a delegation token is supplied, or `()` otherwise. The `tag` parameter MUST be `atproto-space-credential-request`. If the `alg` signature parameter is present, it MUST be `ecdsa-p256-sha256`.
 
 ```http
 Authorization: Bearer <delegation-token>
-Signature-Input: atproto-space=("authorization");keyid="did:key:zDna..."
+Signature-Input: atproto-space=("authorization");keyid="did:key:zDna...";tag="atproto-space-credential-request"
 Signature: atproto-space=:dMT76e...:
 ```
 
@@ -281,7 +284,7 @@ When using the space credential to make authorized requests, the space credentia
 ```http
 Authorization: Atproto-Space <space-credential>
 Atproto-Space-Audience: did:plc:repoOwner
-Signature-Input: atproto-space=("authorization" "atproto-space-audience")
+Signature-Input: atproto-space=("authorization" "atproto-space-audience");tag="atproto-space-credential"
 Signature: atproto-space=:wNmSUA...:
 ```
 
@@ -292,6 +295,7 @@ A host receiving a space credential MUST validate the authorization token and HT
 - require exactly one `Authorization` field using the `Atproto-Space` scheme and one `Atproto-Space-Audience` field
 - validate the space credential, including its type, issuer, signature, subject space, and expiration
 - require the `atproto-space` signature's covered component list to be exactly `("authorization" "atproto-space-audience")`, in that order
+- require the signature's `tag` to be `atproto-space-credential`
 - require the space credential's `cnf.kid` to be a P-256 `did:key`
 - verify the signature against `cnf.kid` using `ecdsa-p256-sha256`
 - verify that `Atproto-Space-Audience` equals the audience DID derived from the request
