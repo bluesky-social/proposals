@@ -165,7 +165,7 @@ A space authority may require either assertion, both, or neither. The authority 
 
 An application requests a credential by presenting any required assertions to the space authority. The authority decides whether to issue the credential. The protocol does not define the decision procedure (the policies of the PDS's space-management implementation are described under [`simplespace`](#required-pds-space-management-simplespace)).
 
-These requirements are generally communicated at the application layer, but can also be discovered from the error type returned when a required assertion is missing.
+These requirements are generally communicated at the application layer, but may also be discoverable from the error type returned when a required assertion is missing.
 
 ### Credential key binding
 
@@ -292,7 +292,7 @@ When syncing a repository, `Atproto-Space-Audience` is the DID of the account th
 
 A host receiving a space credential MUST validate the authorization token and HTTP Message Signature, including:
 
-- require exactly one `Authorization` field using the `Atproto-Space` scheme and one `Atproto-Space-Audience` field
+- require an `Authorization` header using the `Atproto-Space` scheme and an `Atproto-Space-Audience` header
 - validate the space credential, including its type, issuer, signature, subject space, and expiration
 - require the `atproto-space` signature's covered component list to be exactly `("authorization" "atproto-space-audience")`, in that order
 - require the signature's `tag` to be `atproto-space-credential`
