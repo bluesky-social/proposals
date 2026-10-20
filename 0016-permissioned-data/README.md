@@ -304,6 +304,8 @@ The signature does not bind the HTTP method or URI. It MAY be reused with the sa
 
 ### Credential flow
 
+Steps 1–2 may be skipped when no delegation token is needed.
+
 ```
 ┌──────┐          ┌────────────┐          ┌─────────────┐          ┌─────────────────┐
 │ User │          │ User's PDS │          │ Application │          │ Space Authority │
@@ -321,7 +323,7 @@ The signature does not bind the HTTP method or URI. It MAY be reused with the sa
 
 1. The user authorizes the application via OAuth.
 2. The application calls `com.atproto.space.getDelegationToken` on the user's PDS, receiving a delegation token.
-3. The application presents the delegation token to the space authority via `com.atproto.space.getSpaceCredential`, with an HTTP Message Signature made by the key to bind the credential to, adding its own client attestation if the space gates on client app identity.
+3. The application requests a credential from the space authority via `com.atproto.space.getSpaceCredential`, with an HTTP Message Signature made by the key to bind the credential to, including a delegation token and client attestation as required by the space.
 4. The authority verifies what it received and, on authorization, returns a space credential bound to the signature's key.
 5. The application reads the repo from each member's repo host with the credential and an [HTTP Message Signature](#credential-key-binding) addressed to the repo owner DID.
 
@@ -605,7 +607,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 
 | Method | Role | Type | Auth | Description |
 |---|---|---|---|---|
-| `getSpaceCredential` | host | procedure | delegation token + [HTTP Message Signature](#credential-key-binding) (+ client attestation) | Exchange a delegation token for a space credential. |
+| `getSpaceCredential` | host | procedure | [HTTP Message Signature](#credential-key-binding) (+ delegation token) (+ client attestation) | Request a space credential. |
 | `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `hash`. |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
