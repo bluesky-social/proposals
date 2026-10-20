@@ -171,7 +171,7 @@ These requirements are generally communicated at the application layer, but may 
 
 A credential provides access to a whole space. As a bearer token, a credential would become a shared secret: any repo host given a credential in order to serve one repo could turn around and replay it against every other repo host in the space, to sync a repo that it should not have necessarily have access to. Therefore, each space credential is bound at issuance to a key held by the syncer, and each request using the credential carries a signature made by that key over both the credential and its audience DID.
 
-The construction uses [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) alongside the `cnf.kid` confirmation method defined by [RFC 7800](https://www.rfc-editor.org/rfc/rfc7800#section-3.4). The application proves possession of a P-256 `did:key` by signing the authorization token. The space authority places the signature's `keyid` in the space credential as `cnf.kid`, and each service receiving the credential verifies that the accompanying HTTP Message Signature is made by the same key.
+The construction uses [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) alongside the `cnf.kid` confirmation method defined by [RFC 7800](https://www.rfc-editor.org/rfc/rfc7800#section-3.4). The application supplies a P-256 `did:key` when [requesting a space credential](#requesting-a-space-credential). The space authority places it in the space credential as `cnf.kid`, and each service receiving the credential verifies that the accompanying HTTP Message Signature is made by that key.
 
 The application should generate a new keypair each time it requests a new space credential. The private key need only be retained for the lifetime of the space credential and should be discarded when the credential expires or is deleted.
 
@@ -209,16 +209,6 @@ Example JWT header and payload (before base64url encoding and signing):
 The delegation token asserts only the user-to-app delegation; it says nothing about which application is acting. App identity is established independently by the [client attestation](#client-attestation), which the authority verifies itself. The two are presented together but signed by different parties and evaluated independently.
 
 The signature for the delegation token is computed using the regular JWT process, using the account's signing key. For more details, see the [Inter-Service Authentication](https://atproto.com/specs/xrpc#inter-service-authentication-jwt) section of the AT Protocol spec.
-
-#### Credential key binding
-
-The application sends an HTTP Message Signature in its `getSpaceCredential` request. In addition to validating any supplied delegation token, the space host MUST validate the `atproto-space` signature and require its `keyid` to be a P-256 `did:key`. It then uses the signature's `keyid` as the space credential's `cnf.kid`. The covered component list MUST be exactly `("authorization")` when a delegation token is supplied, or `()` otherwise. The `tag` parameter MUST be `atproto-space-credential-request`. If the `alg` signature parameter is present, it MUST be `ecdsa-p256-sha256`.
-
-```http
-Authorization: Bearer <delegation-token>
-Signature-Input: atproto-space=("authorization");keyid="did:key:zDna...";tag="atproto-space-credential-request"
-Signature: atproto-space=:dMT76e...:
-```
 
 ### Client attestation
 
@@ -277,7 +267,22 @@ Example JWT header and payload (before base64url encoding and signing):
 
 The signature for the space credential is computed using the regular JWT process, using the space authority's signing key.
 
-#### Credential key binding
+#### Requesting a space credential
+
+The application requests a space credential by calling `getSpaceCredential` on the space host. The key to bind, along with any delegation token and client attestation, is passed in the request body:
+
+```json
+{
+  "space": "at://did:example:space_did/space/com.example.space_type/space_key",
+  "credentialKid": "did:key:zDna...", // required, P-256 did:key to bind the credential to
+  "delegationToken": "eyJ...", // optional, when the space requires it
+  "clientAttestation": "eyJ..." // optional, when the space requires it
+}
+```
+
+On authorization, the space host uses `credentialKid` as the space credential's `cnf.kid`.
+
+#### Presenting a space credential
 
 When using the space credential to make authorized requests, the space credential is presented in `Authorization` using the `Atproto-Space` scheme alongside an HTTP Message Signature over both the `Authorization` header and the `Atproto-Space-Audience` header:
 
@@ -323,9 +328,9 @@ Steps 1–2 may be skipped when no delegation token is needed.
 
 1. The user authorizes the application via OAuth.
 2. The application calls `com.atproto.space.getDelegationToken` on the user's PDS, receiving a delegation token.
-3. The application requests a credential from the space authority via `com.atproto.space.getSpaceCredential`, with an HTTP Message Signature made by the key to bind the credential to, including a delegation token and client attestation as required by the space.
-4. The authority verifies what it received and, on authorization, returns a space credential bound to the signature's key.
-5. The application reads the repo from each member's repo host with the credential and an [HTTP Message Signature](#credential-key-binding) addressed to the repo owner DID.
+3. The application requests a credential from the space authority via `com.atproto.space.getSpaceCredential`, supplying the key to bind the credential to, and a delegation token and client attestation as required by the space.
+4. The authority verifies what it received and, on authorization, returns a space credential bound to the supplied key.
+5. The application reads the repo from each member's repo host with the credential and an [HTTP Message Signature](#presenting-a-space-credential) addressed to the repo owner DID.
 
 An application serving several users of a space does not necessarily need to maintain a space credential for each user. It may obtain its credential using any one user's session. When it loses all OAuth sessions for a space, it can no longer renew the credential and loses access.
 
@@ -607,7 +612,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 
 | Method | Role | Type | Auth | Description |
 |---|---|---|---|---|
-| `getSpaceCredential` | host | procedure | [HTTP Message Signature](#credential-key-binding) (+ delegation token) (+ client attestation) | Request a space credential. |
+| `getSpaceCredential` | host | procedure | none (delegation token and client attestation included in request body) | Request a space credential. |
 | `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `hash`. |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
