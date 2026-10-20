@@ -339,12 +339,12 @@ Each space repo is summarized by a **commit**, which lets a syncer check whether
 
 | Field | Type | Description |
 |---|---|---|
-| `type` | string | fixed to `atproto-space-repo` |
+| `$type` | string | fixed to `atproto-space-repo` |
 | `ver` | integer | commit format version, currently `1` |
-| `did` | string | author DID of the repo |
+| `repo` | string | author DID of the repo |
 | `space` | string | space URI (`at://authority/space/type/skey`) |
 | `rev` | string | commit revision (TID) |
-| `hash` | bytes | `sha256` of the [LtHash state](#commit-digest) (32 bytes) |
+| `data` | bytes | `sha256` of the [LtHash state](#commit-digest) (32 bytes) |
 
 ### Commit digest
 
@@ -366,7 +366,7 @@ To **remove** an element, perform the same process, but subtract its lanes inste
 
 Both operations are commutative, so the state depends only on the current set of records, not the order of writes. The empty repo's state is all zeroes.
 
-The commit's `hash` is `sha256(state)`, a 32-byte digest of the 2048-byte buffer. The repo host maintains the full state. Only the `hash` is carried in a commit.
+The commit's `data` is `sha256(state)`, a 32-byte digest of the 2048-byte buffer. The repo host maintains the full state. Only the digest is carried in a commit.
 
 ### Commit authenticity
 
@@ -387,7 +387,7 @@ The entry MUST have:
 - `type`: `Multikey`
 - `publicKeyMultibase`: the public key in [atproto multikey encoding](https://atproto.com/specs/did)
 
-The repo host holds the private key. This keypair MUST be generated separately from the signing keys (`#atproto` and `#atproto_space`).
+The repo host holds the private key. This should be a dedicated keypair rather than a reuse of the signing keys (`#atproto` and `#atproto_space`).
 
 The construction below is ECDH framed as a KEM. ECDH is not post-quantum secure, and the KEM framing lets a future version swap in a post-quantum KEM such as ML-KEM.
 
@@ -399,11 +399,11 @@ To request a MAC, the syncer:
 2. Generates a new ephemeral P-256 keypair for this request.
 3. Performs ECDH using the new private key and the author's public key.
 4. Derives a 32-byte `shared_secret` from the ECDH result, as shown below.
-5. Keeps `shared_secret` and sends its new public key in the request header's `enc` field.
+5. Keeps `shared_secret` and sends its new public key in the request header's `key_share` field.
 
-The syncer generates a new keypair for each request carrying `enc`, including retries and new pages.
+The syncer generates a new keypair for every request, including retries and each page of a paginated response.
 
-After authorizing the request, the repo host decodes the syncer's public key from `enc`, performs ECDH using the author's private key, and derives the same `shared_secret`.
+After authorizing the request, the repo host decodes the syncer's public key from `key_share`, performs ECDH using the author's private key, and derives the same `shared_secret`.
 
 Both sides derive `shared_secret` with HKDF-SHA256. The key encoding and HKDF inputs follow [RFC 9180 §4.1](https://www.rfc-editor.org/rfc/rfc9180#section-4.1).
 
@@ -428,43 +428,41 @@ shared_secret = HKDF-SHA256(input, salt="", info=info, length=32)
 
 #### Authenticity headers
 
-When calling a method that supports authenticity checks, a syncer can request a MAC by including an `Atproto-Content-Mac` header. Its value is a [Structured Field Dictionary](https://www.rfc-editor.org/rfc/rfc9651#section-3.2):
+Methods that return a [commit](#commit-mac) or [record](#record-mac) require a MAC when called with a space credential. The syncer requests one with an `Atproto-Space-Want-Mac` header. Its value is a [Structured Field Dictionary](https://www.rfc-editor.org/rfc/rfc9651#section-3.2):
 
 ```http
-Atproto-Content-Mac: type="atproto-space-repo", ver=1, enc="did:key:zDna..."
+Atproto-Space-Want-Mac: type="atproto-space-repo", ver=1, key_share="did:key:zDna..."
 ```
 
-`enc` is the syncer's ephemeral P-256 public key as a `did:key`, abbreviated above.
+`key_share` is the syncer's ephemeral P-256 public key as a `did:key`, abbreviated above.
 
-The host includes the 32-byte MAC in its response as a base64 byte sequence, and lists the header in `Vary` (even when no MAC was requested):
+The host returns the 32-byte MAC as a base64 byte sequence in an `Atproto-Space-Mac` response header, and lists the request header in `Vary`:
 
 ```http
-Atproto-Content-Mac: type="atproto-space-repo", ver=1, mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
-Vary: Atproto-Content-Mac
+Atproto-Space-Mac: type="atproto-space-repo", ver=1, mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
+Vary: Atproto-Space-Want-Mac
 ```
 
-The fields shown are required. The response's `type` and `ver` match the request's and, for commits, the commit metadata. Unsupported types or versions, malformed headers, and invalid keys are errors.
-
-Omitting the request header skips key agreement and MAC generation, and the host omits the response header. The syncer can still check hashes and CIDs, but relies on HTTPS for authenticity. This is generally not recommended, though may be useful for debugging or low-stakes use cases. Access authorization still applies.
+The fields shown are required. The response's `type` and `ver` match the request's and, for commits, the commit metadata. Missing or malformed headers, unsupported types or versions, and invalid keys are errors.
 
 If MAC verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
 
 #### Commit MAC
 
-`getLatestCommit`, `getRepo`, and `listRepoOps` responses carry a [commit](#space-repos), and the MAC covers its `space`, `did`, `rev`, and `hash`. The string fields are UTF-8, each prefixed with its byte length as a big-endian `uint16`.
+`getLatestCommit`, `getRepo`, and `listRepoOps` responses carry a [commit](#space-repos), and the MAC covers its `space`, `repo`, `rev`, and `data`. The string fields are UTF-8, each prefixed with its byte length as a big-endian `uint16`.
 
 ```
 context = "atproto-space-repo-v1"   // protocol tag: "{type}-v{ver}"
    || uint16be(len(space)) || space // space URI (at://authority/space/type/skey)
-   || uint16be(len(did))   || did   // author DID of the repo
+   || uint16be(len(repo))  || repo  // author DID of the repo
    || uint16be(len(rev))   || rev   // commit revision (TID)
 
-mac = HMAC-SHA256(shared_secret, context || hash)
+mac = HMAC-SHA256(shared_secret, context || data)
 ```
 
-The syncer checks that the commit's `did` and `space` match the requested repo, then recomputes the MAC and compares it with `mac`.
+The syncer checks that the commit's `repo` and `space` match the requested repo, then recomputes the MAC and compares it with `mac`.
 
-A `listRepoOps` page without a commit has no response header. Its operations are checked when the final page's commit `hash` is compared against the syncer's running set hash.
+A `listRepoOps` page without a commit has no response header. Its operations are checked when the final page's commit `data` is compared against the syncer's running set hash.
 
 #### Record MAC
 
@@ -492,8 +490,8 @@ The record blocks follow the two roots, and MUST appear in the same order as the
 
 The serialization carries the information needed to reconstruct and verify the repo, and a consumer can validate it as a stream:
 
-1. If a MAC was requested, verify it from the response header. The commit's `hash` is then trusted.
-2. Fold each index entry's `{collection}/{rkey}/{record_cid}` into a running [set hash](#commit-digest) as it is read, then compare the result against the commit's `hash`. This checks the whole index without reading a single record.
+1. Verify the MAC from the response header. The commit's `data` is then trusted.
+2. Fold each index entry's `{collection}/{rkey}/{record_cid}` into a running [set hash](#commit-digest) as it is read, then compare the result against the commit's `data`. This checks the whole index without reading a single record.
 3. Verify each record block against its own CID as it streams past.
 
 ## Sync
@@ -508,7 +506,7 @@ To advance, a syncer calls `com.atproto.space.listRepoOps` with a `since` revisi
 
 By default `listRepoOps` inlines each created or updated record's value alongside its operation, so a syncer advances in a single call without a `getRecord` round-trip per write. Only the current value for a path is inlined. If a record has been updated or deleted by a later operation, the host omits the intermediate (now stale) values. A syncer may set `excludeValues` to receive only the operation metadata (for example, to drive selective `getRecord` calls).
 
-If a given oplog response includes the last available operation that occurred to a repo, then the response must also include the member's current [commit](#space-repos). The syncer verifies the response MAC, if requested, and compares the commit's `hash` against its own running set hash. If they match, the syncer is fully in sync. If they do not, the syncer has diverged and must fall back to a recovery process.
+If a given oplog response includes the last available operation that occurred to a repo, then the response must also include the member's current [commit](#space-repos). The syncer verifies the response MAC and compares the commit's `data` against its own running set hash. If they match, the syncer is fully in sync. If they do not, the syncer has diverged and must fall back to a recovery process.
 
 Sync is self-healing because its correctness rests on the set hash comparison rather than on receiving every operation. A missed operation is detected on a subsequent sync. A total disjunction in repository history is also recognizable, and is recovered from by syncing the repository contents in their entirety.
 
@@ -518,7 +516,7 @@ The oplog is a transport optimization rather than a committed data structure. It
 
 In cases in which a syncer cannot proceed incrementally, it must recover by syncing the full state of the repository.
 
-To do so, a syncer fetches the whole repo as a [serialized CAR](#repo-serialization) from `com.atproto.space.getRepo`. It verifies the response MAC if requested, folds the index into a running set hash and compares that against the commit's `hash`, then validates each record block against its index CID as it streams past, rebuilding its local copy. A syncer replacing an existing copy diffs the recovered structure against what it holds and keeps only the records it is missing.
+To do so, a syncer fetches the whole repo as a [serialized CAR](#repo-serialization) from `com.atproto.space.getRepo`. It verifies the response MAC, folds the index into a running set hash and compares that against the commit's `data`, then validates each record block against its index CID as it streams past, rebuilding its local copy. A syncer replacing an existing copy diffs the recovered structure against what it holds and keeps only the records it is missing.
 
 For the narrower case of *healing* a copy that has only slightly diverged, a syncer may prefer to avoid transferring the whole repo. It can fetch the latest commit through `com.atproto.space.getLatestCommit`, enumerate the repo's structure (paths → CIDs) with `com.atproto.space.listRecords` using `excludeValues`, diff that lightweight listing against its local copy, and fetch just the differing records with `com.atproto.space.getRecord`. This trades the single `getRepo` round-trip for a smaller total transfer when most of the repo is already held.
 
@@ -530,11 +528,11 @@ A syncer may discover which blobs a repo references through `com.atproto.space.l
 
 ### Write notifications
 
-Write notifications inform syncers that a repo has been updated, so they can pull promptly instead of continuously polling for updates. A write notification contains no record data, and states only that a given repo in a given space has reached a new `rev` and `hash`.
+Write notifications inform syncers that a repo has been updated, so they can pull promptly instead of continuously polling for updates. A write notification contains no record data, and states only that a given repo in a given space has reached a new `rev` and `data`.
 
 Space hosts receive write notifications from repo hosts, and sequence updates over the entire space. A syncer subscribes to notifications by calling `com.atproto.space.registerNotify` on the space host (using a space credential for authorization) and subsequently receives notifications for all repos. Registrations have a fixed time duration, indicated by an expiration time in the API response body. A registration can be withdrawn with `com.atproto.space.unregisterNotify`, or simply left to expire.
 
-When an account writes to a space repo, their PDS sends a `com.atproto.space.notifyWrite` containing the updated repo's `rev` and `hash` to the space host associated with the space authority (unless the authority is the repo account itself). Notification between repo hosts and space hosts is automatic and does not require registration. The space host should reject write notifications for repos which are not authorized to write to the space. Repo hosts are responsible for reliably updating the space host with the latest repo state, and should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors. Notification API calls are authenticated using service auth. The space host is not expected to verify the integrity or authenticity of the repo `hash`. Similar to public repository synchronization, the repo revision (`rev`) is a timestamp identifier (TID) which must increase monotonically (updates with a lower or equal revision should be ignored), and must not correspond to a future timestamp (beyond a short clock skew window).
+When an account writes to a space repo, their PDS sends a `com.atproto.space.notifyWrite` containing the updated repo's `rev` and `data` to the space host associated with the space authority (unless the authority is the repo account itself). Notification between repo hosts and space hosts is automatic and does not require registration. The space host should reject write notifications for repos which are not authorized to write to the space. Repo hosts are responsible for reliably updating the space host with the latest repo state, and should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors. Notification API calls are authenticated using service auth. The space host is not expected to verify the integrity or authenticity of the repo `data`. Similar to public repository synchronization, the repo revision (`rev`) is a timestamp identifier (TID) which must increase monotonically (updates with a lower or equal revision should be ignored), and must not correspond to a future timestamp (beyond a short clock skew window).
 
 When the space host receives a valid write notification, it updates a local table tracking the state of each repo in the space, and then forwards notifications to all of the currently registered syncers. The space host is only responsible for reasonable-effort delivery of this synchronization hop. The space host sequences updates with a separate revision (TID) for the overall space, and indicates the current and previous space revision in each forwarded write notification. Syncers can detect missed notifications from a gap in space revisions, and request a list of all repos in the space updated "since" an earlier space revision using the `com.atproto.space.listRepos` endpoint. Syncers can use the same endpoint to ensure synchronization state after any duration of downtime.
 
@@ -546,7 +544,7 @@ The space authority controls which writers it tracks and which write notificatio
 
 Syncing an individual repo requires the syncer to know that the repo exists. To sync a space in full, or to begin syncing a space for the first time, an application requires the set of accounts whose repos hold data in the space. This **writer set** is retrieved from the space authority via `com.atproto.space.listRepos`.
 
-Because it receives updates from every repository in the space, the authority can easily maintain a complete and current record of which repos hold data in the space. Alongside each account, `listRepos` returns that repo's current `rev` and `hash`.
+Because it receives updates from every repository in the space, the authority can easily maintain a complete and current record of which repos hold data in the space. Alongside each account, `listRepos` returns that repo's current `rev` and `data`.
 
 The writer set is a simple fetch and carries no commit or history. It enumerates accounts that have **written at least one record** into the space, not the broader set of accounts that are merely *allowed* to write (which the authority may not even track) nor those that may only read it. Accounts that may read the space are never enumerated at the protocol-level, though applications may choose to enumerate them through records published in the space.
 
@@ -683,7 +681,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | Method | Role | Type | Auth | Description |
 |---|---|---|---|---|
 | `getSpaceCredential` | host | procedure | delegation token + [HTTP Message Signature](#credential-key-binding) (+ client attestation) | Exchange a delegation token for a space credential. |
-| `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `hash`. |
+| `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `data`. |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
 | `getBlob` | repo | query | OAuth / space credential | Fetch a blob by CID. |
@@ -699,7 +697,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in. |
 | `registerNotify` | host | procedure | space credential | Register a service to be notified of writes for the whole space. |
 | `unregisterNotify` | host | procedure | space credential | Withdraw a `registerNotify` registration. |
-| `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `hash`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
+| `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `data`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
 | `notifySpaceDeleted` | syncer | procedure | service auth | Notify that a space was deleted and its data should be dropped. Sent by the authority to the syncers registered for the space. |
 | `notifyCredentialRevoked` | repo | procedure | service auth | Notify a repo host that the authority has revoked one or more space credentials, identified by `jti`. |
 
