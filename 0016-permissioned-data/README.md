@@ -284,28 +284,30 @@ On authorization, the space host uses `credentialKid` as the space credential's 
 
 #### Presenting a space credential
 
-When using the space credential to make authorized requests, the space credential is presented in `Authorization` using the `Atproto-Space` scheme alongside an HTTP Message Signature over both the `Authorization` header and the `Atproto-Space-Audience` header:
+When using the space credential to make authorized requests, the space credential is presented in `Authorization` using the `Atproto-Space-Credential` scheme alongside an HTTP Message Signature over both the `Authorization` header and the `Atproto-Space-Audience` header:
 
 ```http
-Authorization: Atproto-Space <space-credential>
+Authorization: Atproto-Space-Credential <space-credential>
 Atproto-Space-Audience: did:plc:repoOwner
-Signature-Input: atproto-space=("authorization" "atproto-space-audience");tag="atproto-space-credential"
-Signature: atproto-space=:wNmSUA...:
+Signature-Input: atproto-space-credential=("authorization" "atproto-space-audience");tag="atproto-space-credential"
+Signature: atproto-space-credential=:wNmSUA...:
 ```
 
 When syncing a repository, `Atproto-Space-Audience` is the DID of the account that the repo belongs to. If the space credential is being used to make a request against the space host, then `Atproto-Space-Audience` is the space authority DID.
 
 A host receiving a space credential MUST validate the authorization token and HTTP Message Signature, including:
 
-- require an `Authorization` header using the `Atproto-Space` scheme and an `Atproto-Space-Audience` header
+- require an `Authorization` header using the `Atproto-Space-Credential` scheme and an `Atproto-Space-Audience` header
 - validate the space credential, including its type, issuer, signature, subject space, and expiration
-- require the `atproto-space` signature's covered component list to be exactly `("authorization" "atproto-space-audience")`, in that order
+- require the `atproto-space-credential` signature's covered component list to be exactly `("authorization" "atproto-space-audience")`, in that order
 - require the signature's `tag` to be `atproto-space-credential`
 - require the space credential's `cnf.kid` to be a P-256 `did:key`
 - verify the signature against `cnf.kid` using `ecdsa-p256-sha256`
 - verify that `Atproto-Space-Audience` equals the audience DID derived from the request
 
 The signature does not bind the HTTP method or URI. It MAY be reused with the same authorization token and audience DID until the token expires. Replay against the same audience is allowed.
+
+As with any HTTP authentication scheme, a host recognizes the `Atproto-Space-Credential` scheme regardless of case (e.g. `atproto-space-credential` is also accepted). This applies only to recognizing the scheme. The signature base is always computed over the `Authorization` field value exactly as received, with no case normalization.
 
 ### Credential flow
 
