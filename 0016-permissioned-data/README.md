@@ -472,7 +472,7 @@ The writer set is what the authority *claims*, and is not itself authoritative f
 
 ## Space deletion
 
-A space may be deleted by its authority. The authority stops issuing credentials for the space and deletes its own repo in the space.
+A space may be deleted by its authority. The authority stops issuing credentials for the space and deletes all records in its own repo in the space.
 
 The authority then notifies the syncers registered for the space with `com.atproto.space.notifySpaceDeleted`. The authority is responsible for reliably delivering this notification to each registered syncer, with the same rigor as a repo host delivering write notifications to the space host: it should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors.
 
