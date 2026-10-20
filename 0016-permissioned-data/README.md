@@ -337,6 +337,12 @@ A **space repo** is one account's set of records within one space, generally sto
 
 Each space repo is summarized by a **commit**. A commit is a short, signed digest that allows a syncer to check whether its copy of a repo matches the source without resyncing it in its entirety.
 
+### Repo lifecycle
+
+A user's space repo is automatically created when they first write a record to that space. No separate repo-creation operation is needed. When the space authority is another DID, the user's PDS does not need to check whether the space exists before accepting the write. If the user is also the space authority (the space authority DID is the user's own DID), the space must already exist. 
+
+An empty space repo and a nonexistent space repo are equivalent. To delete a space repo, the user deletes all records within it. There is no separate repo deletion operation. Writing a record to that space again automatically creates the repo under the same rules above. Deleting a repo does not delete the space itself (see [Space deletion](#space-deletion)).
+
 ### Commit digest
 
 The digest in a commit is computed from a **set hash** over the records a repo currently contains. It is independent of write/delete order, so two repos with the same records always produce the same digest. Adding or removing a record is a single cheap operation, so a repo host maintains the set hash incrementally on each write.
@@ -543,7 +549,7 @@ This default follows the same dynamic-update semantics as a [permission set](htt
 
 The protocol does not enumerate what each `manage` verb permits, because space management is implementation-defined (see [`simplespace`](#required-pds-space-management-simplespace)). Each space-management implementation maps the verbs onto its own administrative surface. For example, in `com.atproto.simplespace`, `manage=update` authorizes `com.atproto.simplespace.updateSpace` as well as `putMember` and `removeMember`.
 
-`manage=create` authorizes creating a space of the given `spaceType` under the given authority. Unlike every other operation, it concerns a space that does not yet exist, so scoping it to a concrete `skey` is unusual. It is typically granted with `skey=*` ("this app may create spaces of this type").
+`manage=create` authorizes creating a space of the given `spaceType` under the given authority. It concerns a space that does not yet exist, so scoping it to a concrete `skey` is unusual. It is typically granted with `skey=*` ("this app may create spaces of this type").
 
 ### Examples
 
