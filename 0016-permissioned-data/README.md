@@ -434,7 +434,7 @@ Here is an example metadata object for a space repo:
 The body contains every record in the repo:
 
 - Each key is the UTF-8 encoding of a valid record path, `{collection}/{rkey}`
-- Each value is the record's canonical DRISL encoding
+- Each value is the record's canonical DRISL encoding, at most 1 MiB (1,048,576 bytes)
 - Records MUST appear in strict lexicographic order of the key bytes, with no duplicate keys.
 
 Pairs continue until EOF; an empty repo has none. A consumer can reconstruct and verify the snapshot as a stream:
