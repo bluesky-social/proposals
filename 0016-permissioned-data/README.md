@@ -149,19 +149,22 @@ The **space key** (`skey`) is a string distinguishing spaces of the same type un
 
 Reading a space is gated by a **space credential** issued by the space authority.
 
-The authority issues one based on two axes:
+The authority can base its decision on two signed assertions:
+
 - **which user** is being acted for: established by a **delegation token** minted by the user's PDS
-- **which application** is acting: established by an optional **client attestation** signed by the application itself
+- **which application** is acting: established by a **client attestation** signed by the application itself
 
-The delegation token is always required. The client attestation is required only when a space gates on client app identity. An application obtains a credential by getting a delegation token from a user's PDS, then presenting that token and signature (together with its client attestation, if needed) to the space authority in exchange for a credential. The authority decides whether to issue the credential. The protocol does not define the decision procedure (the policies of the PDS's space-management implementation are described under [`simplespace`](#required-pds-space-management-simplespace)).
+A space authority may require either assertion, both, or neither. The authority MUST NOT reject a request solely because it includes a valid assertion that the space does not require. Spaces that require neither offer public access, though syncing applications must still obtain a space credential.
 
-Some spaces do not require a client attestation. The requirement can be communicated at the application layer or be detected by simply making a request for a credential without an attestation and inspecting the returned error type.
+An application requests a credential by presenting any required assertions to the space authority. The authority decides whether to issue the credential. The protocol does not define the decision procedure (the policies of the PDS's space-management implementation are described under [`simplespace`](#required-pds-space-management-simplespace)).
+
+These requirements are generally communicated at the application layer, but may also be discoverable from the error type returned when a required assertion is missing.
 
 ### Credential key binding
 
 A credential provides access to a whole space. As a bearer token, a credential would become a shared secret: any repo host given a credential in order to serve one repo could turn around and replay it against every other repo host in the space, to sync a repo that it should not have necessarily have access to. Therefore, each space credential is bound at issuance to a key held by the syncer, and each request using the credential carries a signature made by that key over both the credential and its audience DID.
 
-The construction uses [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) alongside the `cnf.kid` confirmation method defined by [RFC 7800](https://www.rfc-editor.org/rfc/rfc7800#section-3.4). The application proves possession of a P-256 `did:key` by signing the authorization token. The space authority places the signature's `keyid` in the space credential as `cnf.kid`, and each service receiving the credential verifies that the accompanying HTTP Message Signature is made by the same key.
+The construction uses [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) alongside the `cnf.kid` confirmation method defined by [RFC 7800](https://www.rfc-editor.org/rfc/rfc7800#section-3.4). The application supplies a P-256 `did:key` when [requesting a space credential](#requesting-a-space-credential). The space authority places it in the space credential as `cnf.kid`, and each service receiving the credential verifies that the accompanying HTTP Message Signature is made by that key.
 
 The application should generate a new keypair each time it requests a new space credential. The private key need only be retained for the lifetime of the space credential and should be discarded when the credential expires or is deleted.
 
@@ -199,16 +202,6 @@ Example JWT header and payload (before base64url encoding and signing):
 The delegation token asserts only the user-to-app delegation; it says nothing about which application is acting. App identity is established independently by the [client attestation](#client-attestation), which the authority verifies itself. The two are presented together but signed by different parties and evaluated independently.
 
 The signature for the delegation token is computed using the regular JWT process, using the account's signing key. For more details, see the [Inter-Service Authentication](https://atproto.com/specs/xrpc#inter-service-authentication-jwt) section of the AT Protocol spec.
-
-#### Credential key binding
-
-The application sends an HTTP Message Signature covering the `Authorization` field in its `getSpaceCredential` request. After validating the delegation token, the space host MUST validate the `atproto-space` signature and require its `keyid` to be a P-256 `did:key`. It then uses the signature's `keyid` as the space credential's `cnf.kid`. The covered component list MUST be exactly `("authorization")`. If the `alg` signature parameter is present, it MUST be `ecdsa-p256-sha256`.
-
-```http
-Authorization: Bearer <delegation-token>
-Signature-Input: atproto-space=("authorization");keyid="did:key:zDna..."
-Signature: atproto-space=:dMT76e...:
-```
 
 ### Client attestation
 
@@ -267,31 +260,51 @@ Example JWT header and payload (before base64url encoding and signing):
 
 The signature for the space credential is computed using the regular JWT process, using the space authority's signing key.
 
-#### Credential key binding
+#### Requesting a space credential
 
-When using the space credential to make authorized requests, the space credential is presented in `Authorization` using the `Atproto-Space` scheme alongside an HTTP Message Signature over both the `Authorization` header and the `Atproto-Space-Audience` header:
+The application requests a space credential by calling `getSpaceCredential` on the space host. The key to bind, along with any delegation token and client attestation, is passed in the request body:
+
+```json
+{
+  "space": "at://did:example:space_did/space/com.example.space_type/space_key",
+  "credentialKid": "did:key:zDna...", // required, P-256 did:key to bind the credential to
+  "delegationToken": "eyJ...", // optional, when the space requires it
+  "clientAttestation": "eyJ..." // optional, when the space requires it
+}
+```
+
+On authorization, the space host uses `credentialKid` as the space credential's `cnf.kid`.
+
+#### Presenting a space credential
+
+When using the space credential to make authorized requests, the space credential is presented in `Authorization` using the `Atproto-Space-Credential` scheme alongside an HTTP Message Signature over both the `Authorization` header and the `Atproto-Space-Audience` header:
 
 ```http
-Authorization: Atproto-Space <space-credential>
+Authorization: Atproto-Space-Credential <space-credential>
 Atproto-Space-Audience: did:plc:repoOwner
-Signature-Input: atproto-space=("authorization" "atproto-space-audience")
-Signature: atproto-space=:wNmSUA...:
+Signature-Input: atproto-space-credential=("authorization" "atproto-space-audience");tag="atproto-space-credential"
+Signature: atproto-space-credential=:wNmSUA...:
 ```
 
 When syncing a repository, `Atproto-Space-Audience` is the DID of the account that the repo belongs to. If the space credential is being used to make a request against the space host, then `Atproto-Space-Audience` is the space authority DID.
 
 A host receiving a space credential MUST validate the authorization token and HTTP Message Signature, including:
 
-- require exactly one `Authorization` field using the `Atproto-Space` scheme and one `Atproto-Space-Audience` field
+- require an `Authorization` header using the `Atproto-Space-Credential` scheme and an `Atproto-Space-Audience` header
 - validate the space credential, including its type, issuer, signature, subject space, and expiration
-- require the `atproto-space` signature's covered component list to be exactly `("authorization" "atproto-space-audience")`, in that order
+- require the `atproto-space-credential` signature's covered component list to be exactly `("authorization" "atproto-space-audience")`, in that order
+- require the signature's `tag` to be `atproto-space-credential`
 - require the space credential's `cnf.kid` to be a P-256 `did:key`
 - verify the signature against `cnf.kid` using `ecdsa-p256-sha256`
 - verify that `Atproto-Space-Audience` equals the audience DID derived from the request
 
 The signature does not bind the HTTP method or URI. It MAY be reused with the same authorization token and audience DID until the token expires. Replay against the same audience is allowed.
 
+As with any HTTP authentication scheme, a host recognizes the `Atproto-Space-Credential` scheme regardless of case (e.g. `atproto-space-credential` is also accepted). This applies only to recognizing the scheme. The signature base is always computed over the `Authorization` field value exactly as received, with no case normalization.
+
 ### Credential flow
+
+Steps 1–2 may be skipped when no delegation token is needed.
 
 ```
 ┌──────┐          ┌────────────┐          ┌─────────────┐          ┌─────────────────┐
@@ -310,9 +323,9 @@ The signature does not bind the HTTP method or URI. It MAY be reused with the sa
 
 1. The user authorizes the application via OAuth.
 2. The application calls `com.atproto.space.getDelegationToken` on the user's PDS, receiving a delegation token.
-3. The application presents the delegation token to the space authority via `com.atproto.space.getSpaceCredential`, with an HTTP Message Signature made by the key to bind the credential to, adding its own client attestation if the space gates on client app identity.
-4. The authority verifies what it received and, on authorization, returns a space credential bound to the signature's key.
-5. The application reads the repo from each member's repo host with the credential and an [HTTP Message Signature](#credential-key-binding) addressed to the repo owner DID.
+3. The application requests a credential from the space authority via `com.atproto.space.getSpaceCredential`, supplying the key to bind the credential to, and a delegation token and client attestation as required by the space.
+4. The authority verifies what it received and, on authorization, returns a space credential bound to the supplied key.
+5. The application reads the repo from each member's repo host with the credential and an [HTTP Message Signature](#presenting-a-space-credential) addressed to the repo owner DID.
 
 An application serving several users of a space does not necessarily need to maintain a space credential for each user. It may obtain its credential using any one user's session. When it loses all OAuth sessions for a space, it can no longer renew the credential and loses access.
 
@@ -606,7 +619,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 
 | Method | Role | Type | Auth | Description |
 |---|---|---|---|---|
-| `getSpaceCredential` | host | procedure | delegation token + [HTTP Message Signature](#credential-key-binding) (+ client attestation) | Exchange a delegation token for a space credential. |
+| `getSpaceCredential` | host | procedure | none (delegation token and client attestation included in request body) | Request a space credential. |
 | `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `hash`. |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
