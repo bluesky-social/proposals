@@ -339,7 +339,6 @@ Each space repo is summarized by a **commit**, which lets a syncer check whether
 
 | Field | Type | Description |
 |---|---|---|
-| `$type` | string | fixed to `atproto-space-repo` |
 | `ver` | integer | commit format version, currently `1` |
 | `repo` | string | author DID of the repo |
 | `space` | string | space URI (`at://authority/space/type/skey`) |
@@ -443,13 +442,13 @@ Atproto-Space-Mac: type="atproto-space-repo", ver=1, mac=:AAECAwQFBgcICQoLDA0ODx
 Vary: Atproto-Space-Want-Mac
 ```
 
-The fields shown are required. The response's `type` and `ver` match the request's and, for commits, the commit metadata. Missing or malformed headers, unsupported types or versions, and invalid keys are errors.
+The fields shown are required. The response's `type` and `ver` match the request's. Missing or malformed headers, unsupported types or versions, and invalid keys are errors.
 
 If MAC verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
 
 #### Commit MAC
 
-`getLatestCommit`, `getRepo`, and `listRepoOps` responses carry a [commit](#space-repos), and the MAC covers its `space`, `repo`, `rev`, and `data`. The string fields are UTF-8, each prefixed with its byte length as a big-endian `uint16`.
+`getLatestCommit`, `getRepo`, and `listRepoOps` responses carry a [commit](#space-repos). They use `type="atproto-space-repo"`, and `ver` is the commit's `ver`. The MAC covers the commit's `space`, `repo`, `rev`, and `data`. The string fields are UTF-8, each prefixed with its byte length as a big-endian `uint16`.
 
 ```
 context = "atproto-space-repo-v1"   // protocol tag: "{type}-v{ver}"
