@@ -443,7 +443,7 @@ Pairs continue until EOF; an empty repo has none. A consumer can reconstruct and
 2. Starting with an empty [set hash](#commit-digest), read each path/record pair, validate the path and record encoding, compute the record's CID, and fold `{collection}/{rkey}/{record_cid}` into the running set hash.
 3. Once every record has been streamed, compare `sha256(state)` against the commit's `hash`. Only a match establishes that the complete repo has been received.
 
-Readers MUST reject the entire archive on a parse error, non-canonical encoding, an exceeded length limit, a duplicate or out-of-order key, or a digest mismatch.
+Readers MUST reject the entire archive on a parse error, non-canonical metadata, an exceeded length limit, a duplicate or out-of-order key, or a digest mismatch.
 
 ## Sync
 
