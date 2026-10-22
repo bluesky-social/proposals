@@ -34,7 +34,7 @@ Atproto spaces provide **access control, not confidentiality**. They are [not en
 | Record authority | User DID | User DID |
 | URI authority | User DID | Space authority DID |
 | Commit | Merkle Search Tree root | LtHash set-hash digest |
-| Signature | Rebroadcastable, archival | Deniable on rebroadcast |
+| Commit authenticity | Signature | HMAC |
 | Addressing | Traditional `at://` URI | `at://` URI with `space` segment |
 | Access | Public | Gated by space credential |
 
@@ -45,7 +45,7 @@ Atproto spaces provide **access control, not confidentiality**. They are [not en
 - **Repo host**: a service that stores and serves users' space repos.
 - **Space host**: a service that answers for a space as a whole, issuing credentials, enumerating writers, and routing notifications.
 - **Space authority**: the DID at the root of a space, which resolves to the space host and the key material for issuing credentials.
-- **Space credential**: a token issued by the space authority that grants read access to a space, DPoP-bound to the application it was issued to.
+- **Space credential**: a token issued by the space authority that grants read access to a space, bound to a key held by the application it was issued to.
 - **Delegation token**: a token issued by a user's PDS that an application exchanges with a space authority for a space credential.
 - **Client attestation**: a token signed by an application's own client authentication key, proving the application's identity to a space authority. Required only when a space gates on client app identity.
 - **Syncer**: an application that keeps its own copy of a space in sync by pulling from repo hosts.
@@ -62,7 +62,7 @@ Each space is identified by three values:
 2. **space type**: an NSID describing the modality of the space
 3. **space key** (`skey`): a string distinguishing spaces of the same space type under the same space authority
 
-Reading or syncing a space requires a **space credential** signed by the declared signing key of the space authority, [DPoP-bound](#dpop-binding) to the application holding it. The space authority decides whether to issue one based on the requesting user and client application. The protocol does not define how that decision is made and carries no member list (see [Access Control](#access-control)). Spaces scale from a single user's personal data (e.g. bookmarks) to communities of millions of users.
+Reading or syncing a space requires a **space credential** signed by the declared signing key of the space authority and [bound to a key](#credential-key-binding) held by the application. The space authority decides whether to issue one based on the requesting user and client application. The protocol does not define how that decision is made and carries no member list (see [Access Control](#access-control)). Spaces scale from a single user's personal data (e.g. bookmarks) to communities of millions of users.
 
 ### Addressing
 
@@ -97,14 +97,7 @@ A new `space-ref` Lexicon string format is defined for references to just a spac
 
 A space's **authority** is the DID at the root of the space and the issuer of its [credentials](#access-control). It may be a user's own DID as for personal data such as bookmarks or mutes. Or it may be a dedicated DID which lets a shared space transfer between users independently of any individual account.
 
-A space authority is resolved through two entries in its DID document:
-
-- a **verification method** with id `#atproto_space`: the public key used to verify the space's credentials
-- a **service** entry with id `#atproto_space_host`: the endpoint of the space host (with `AtprotoSpaceHost` type)
-
-Both entries are optional. When `#atproto_space` is absent, the space signing key falls back to the account's `#atproto` signing key. Similarly, when `#atproto_space_host` is absent, the space host falls back to the account's `#atproto_pds` service endpoint. An authority MAY instead publish the dedicated entries to point at distinct key material or a distinct host, or MAY explicitly set them to the same values as `#atproto` and `#atproto_pds`.
-
-If the `#atproto_space` key entry is present but malformed or invalid, implementations should return an error instead of falling back to the `#atproto` key. Similarly, if the `#atproto_space_host` service entry is malformed or invalid, implementations should return an error instead of falling back to the `#atproto_pds` entry.
+A space authority is resolved like any other atproto account. Its `#atproto_pds` service endpoint is the space host, and its `#atproto` key signs the space's credentials and any service auth it sends as the authority.
 
 ### Space type
 
@@ -154,16 +147,28 @@ The **space key** (`skey`) is a string distinguishing spaces of the same type un
 
 ## Access control
 
-Reading a space is gated by a **space credential** issued by the space authority. Each credential is bound to a key held by the application, which proves possession of that key via [DPoP](#dpop-binding) when obtaining and using the credential. The authority issues one based on two axes:
+Reading a space is gated by a **space credential** issued by the space authority.
+
+The authority can base its decision on two signed assertions:
 
 - **which user** is being acted for: established by a **delegation token** minted by the user's PDS
-- **which application** is acting: established by an optional **client attestation** signed by the application itself
+- **which application** is acting: established by a **client attestation** signed by the application itself
 
-The delegation token and a DPoP proof are always required. The client attestation is required only when a space gates on client app identity. An application obtains a credential by getting a delegation token from a user's PDS, then presenting that token and a DPoP proof (together with its client attestation, if needed) to the space authority in exchange for a credential. The authority decides whether to issue the credential. The protocol does not define the decision procedure; it is determined by the space's [`policy`](#space-policy) (for the baseline management surface, see [`simplespace`](#required-baseline-policy-simplespace)).
+A space authority may require either assertion, both, or neither. The authority MUST NOT reject a request solely because it includes a valid assertion that the space does not require. Spaces that require neither offer public access, though syncing applications must still obtain a space credential.
 
-A space credential is a whole-space capability presented to many independent hosts, so it is [DPoP-bound](#dpop-binding) to the application it was issued to rather than being a bearer token.
+An application requests a credential by presenting any required assertions to the space authority. The authority decides whether to issue the credential. The protocol does not define the decision procedure; it is determined by the space's [`policy`](#space-policy) (for the baseline management surface, see [`simplespace`](#required-baseline-policy-simplespace)).
 
-Some spaces do not require a client attestation. The requirement can be communicated at the application layer or be detected by simply making a request for a credential without an attestation and inspecting the returned error type.
+These requirements are generally communicated at the application layer, but may also be discoverable from the error type returned when a required assertion is missing.
+
+### Credential key binding
+
+A credential provides access to a whole space. As a bearer token, a credential would become a shared secret: any repo host given a credential in order to serve one repo could turn around and replay it against every other repo host in the space, to sync a repo that it should not necessarily have access to. Therefore, each space credential is bound at issuance to a key held by the syncer, and each request using the credential carries a signature made by that key over both the credential and its audience DID.
+
+The construction uses [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) alongside the `cnf.kid` confirmation method defined by [RFC 7800](https://www.rfc-editor.org/rfc/rfc7800#section-3.4). The application supplies a P-256 `did:key` when [requesting a space credential](#requesting-a-space-credential). The space authority places it in the space credential as `cnf.kid`, and each service receiving the credential verifies that the accompanying HTTP Message Signature is made by that key.
+
+The application should generate a new keypair each time it requests a new space credential. The private key need only be retained for the lifetime of the space credential and should be discarded when the credential expires or is deleted.
+
+Signatures use the `ecdsa-p256-sha256` algorithm defined by [RFC 9421 Section 3.3.4](https://www.rfc-editor.org/rfc/rfc9421#section-3.3.4). The signature value is the 64-octet concatenation `r || s`, with each integer encoded as a zero-padded 32-octet big-endian value. This is the same binary encoding used by atproto commit signatures. Unlike atproto commit signatures, low-S normalization is not required, and verifiers MUST accept both low-S and high-S signatures.
 
 ### Delegation token
 
@@ -187,20 +192,20 @@ Example JWT header and payload (before base64url encoding and signing):
 {
   "iss": "did:example:user_did", // User DID
   "sub": "at://did:example:space_did/space/com.example.space_type/space_key", // Space being requested
-  "aud": "did:example:space_did#atproto_space_host", // Space host (service fragment of the authority DID)
+  "aud": "did:example:space_did#atproto_pds", // Space host (service fragment of the authority DID)
   "iat": 1738368000, // Issued-at (unix seconds)
   "exp": 1738368060, // iat + 60 (60 seconds)
   "jti": "f47ac10b58cc4372a5670e02b2c3d479" // random nonce
 }
 ```
 
-The delegation token asserts only the user-to-app delegation; it says nothing about which application is acting. App identity is established independently by the [client attestation](#client-attestation), which the authority verifies itself. The two are presented together but signed by different parties and evaluated independently.
+The delegation token asserts only the user-to-app delegation; it says nothing about which application is acting. App identity is established independently by the [client attestation](#client-attestation), which the authority verifies itself. When a space requires both, they are presented together but signed by different parties and evaluated independently.
 
 The signature for the delegation token is computed using the regular JWT process, using the account's signing key. For more details, see the [Inter-Service Authentication](https://atproto.com/specs/xrpc#inter-service-authentication-jwt) section of the AT Protocol spec.
 
 ### Client attestation
 
-A **client attestation** is a short-lived, single-use JWT that the application presents to the space authority alongside the delegation token to identify itself, when the space requires it. It is structurally a `private_key_jwt` [client assertion](https://atproto.com/specs/oauth), the same shape an atproto confidential client already presents to its authorization server, but addressed to the space authority rather than to the PDS.
+A **client attestation** is a short-lived, single-use JWT that the application presents to the space authority (alongside the delegation token, if any) to identify itself, when the space requires it. It is structurally a `private_key_jwt` [client assertion](https://atproto.com/specs/oauth), the same shape an atproto confidential client already presents to its authorization server, but addressed to the space authority rather than to the PDS.
 
 ```json
 {
@@ -211,7 +216,7 @@ A **client attestation** is a short-lived, single-use JWT that the application p
 {
   "iss": "https://app.example.com/client-metadata.json", // The client_id
   "sub": "https://app.example.com/client-metadata.json", // The client_id (== iss)
-  "aud": "did:example:space_did#atproto_space_host", // Space host being asked for a credential
+  "aud": "did:example:space_did#atproto_pds", // Space host being asked for a credential
   "iat": 1738368000, // Issued-at (unix seconds)
   "exp": 1738368060, // short-lived
   "jti": "b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8" // random nonce, replay protection
@@ -222,7 +227,7 @@ The authority verifies the attestation by resolving `iss` (the `client_id`) to t
 
 ### Space credential
 
-A **space credential** is the token an application presents to a repo host to read a repo in a space. The authority mints it in exchange for a delegation token, requested through [`com.atproto.space.getSpaceCredential`](#xrpc-api). It is short-lived (default 2 hours) and signed by the space authority's signing key, so any repo host can verify it against the authority's key without contacting the authority.
+A **space credential** is the token an application presents to a repo host to read a repo in a space. The authority mints it on request, in exchange for whichever [assertions](#access-control) the space requires, through [`com.atproto.space.getSpaceCredential`](#xrpc-api). It is short-lived (default 10 minutes, maximum 60 minutes) and signed by the [space authority's](#space-authority) signing key, so any repo host can verify it against the authority's key without contacting the authority.
 
 A space credential is multi-use. A single credential is intended to be reused across every repo host serving a repo in the space as well as against a given host for repeated requests, until it expires.
 
@@ -231,7 +236,7 @@ A space credential resembles a [space delegation token](#delegation-token), diff
 - The `typ` field in the header is set to `atproto-space-credential+jwt`.
 - It is signed by the space authority rather than the user.
 - It has no `aud`: it is presented to any repo host serving a repo in the space, not to a single recipient.
-- It carries a `cnf` claim using the `jkt` method, binding it to a key held by the application.
+- It carries a `cnf.kid` claim, binding it to a key held by the application.
 
 Example JWT header and payload (before base64url encoding and signing):
 
@@ -239,84 +244,67 @@ Example JWT header and payload (before base64url encoding and signing):
 {
   "typ": "atproto-space-credential+jwt",
   "alg": "ES256K", // or ES256
-  "kid": "#atproto_space" // Key Identifier - "#atproto_space" or "#atproto"
+  "kid": "#atproto" // Key Identifier - MUST be "#atproto"
 }
 {
   "iss": "did:example:space_did", // Space authority DID
   "sub": "at://did:example:space_did/space/com.example.space_type/space_key", // Space the credential reads
   "cnf": {
-    "jkt": "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I" // JWK thumbprint of the bound key
+    "kid": "did:key:zDna..." // did:key identifying the bound key
   },
   "iat": 1738368000, // Issued-at (unix seconds)
-  "exp": 1738375200, // iat + 7200 (2 hours)
-  "jti": "9f8e7d6c5b4a3210fedcba9876543210" // random nonce
+  "exp": 1738368600, // iat + 600 (10 minutes)
+  "jti": "9f8e7d6c5b4a3210fedcba9876543210" // random unique identifier, used for revocation
 }
 ```
 
 The signature for the space credential is computed using the regular JWT process, using the space authority's signing key.
 
-### DPoP binding
+#### Requesting a space credential
 
-A credential provides access to a whole space. As a bearer token, a credential would become a shared secret: any repo host given a credential in order to serve one repo could turn around and replay it against every other repo host in the space, to sync a repo that it should not have necessarily have access to. Therefore, each space credential is bound at issuance to a key held by the syncer, and each request carries a proof signed by that key naming the host it is addressed to.
-
-The construction is [DPoP](https://www.rfc-editor.org/rfc/rfc9449), the same binding atproto OAuth requires on every authenticated request, with a credential from the space authority in place of an access token. DPoP server-provided nonces are not used.
-
-The application sends a DPoP proof in the `DPoP` header of its `getSpaceCredential` request. The space host MUST verify it per RFC 9449 and use the [JWK thumbprint](https://www.rfc-editor.org/rfc/rfc7638) value as the space credential's `cnf.jkt` claim. That DPoP key does not need to be otherwise published or registered.
-
-Instead of using the custom atproto `lxm` field (naming an XRPC endpoint NSID), the URL is included in `htu`. This URL must include the URI scheme, hostname, and path components, but not any query parameters or fragment parts.
-
-Example DPoP proof header and payload (before base64url encoding and signing) when requesting a space credential:
+The application requests a space credential by calling `getSpaceCredential` on the space host. The key to bind, along with any delegation token and client attestation, is passed in the request body:
 
 ```json
 {
-  "typ": "dpop+jwt",
-  "alg": "ES256",
-  "jwk": {
-    "kty": "EC",
-    "crv": "P-256",
-    "x": "...",
-    "y": "..."
-  }
-}
-{
-  "jti": "e1c4a986c37d4f60a31c9c04e50b7ea2",   // client-generated random nonce
-  "htm": "POST",
-  "htu": "https://space.example.com/xrpc/com.atproto.space.getSpaceCredential",
-  "iat": 1738368000                            // issued-at timestamp
+  "space": "at://did:example:space_did/space/com.example.space_type/space_key",
+  "credentialKid": "did:key:zDna...", // required, P-256 did:key to bind the credential to
+  "delegationToken": "eyJ...", // optional, when the space requires it
+  "clientAttestation": "eyJ..." // optional, when the space requires it
 }
 ```
 
-The DPoP proof sent in the initial `getSpaceCredential` request should not include an `ath` claim binding to the delegation token. This is because the delegation is a single-use authorization grant, not an access token. The delegation token itself is included as a `Bearer` in the HTTP `Authorization` header:
+On authorization, the space host uses `credentialKid` as the space credential's `cnf.kid`.
 
-```
-GET /xrpc/com.atproto.space.getSpaceCredential HTTP/1.1
-Host: space-host.example.com
-Authorization: Bearer ogj8TJ3tUa4OxosQC1yxcfGzHg8... // the delegation token
-DPoP: 6c1nmaotxTIhcLxbIvGxY3vEOCujOpW45ztY7XKLKOH... // the DPoP proof
-```
+#### Presenting a space credential
 
-The application should generate a new DPoP keypair for each space credential. The private key need only be retained for the lifetime of the space credential and should be discarded when the credential expires or is deleted.
+When using the space credential to make authorized requests, the space credential is presented in `Authorization` using the `Atproto-Space-Credential` scheme alongside an HTTP Message Signature over both the `Authorization` header and the `Atproto-Space-Audience` header:
 
-When using the space credential to make authorized requests (for example, to fetch space repositories), the space credential is presented in `Authorization` using the `DPoP` scheme, bound to the DPoP proof using the `ath` claim like an access token would be:
-
-```
-GET /xrpc/com.atproto.space.getRepo?space=at%3A%2F%2F...&repo=did%3Aplc%3A... HTTP/1.1
-Host: pds.example.com
-Authorization: DPoP 9kQd4NLdmGxLmh8fp1ba0JyE6gHR0VwXG3... // the space credential
-DPoP: fmikIzejHjmgE8MLwrZQ4LgFCPR3uWLqQen7YqLbTewrZ797... // the DPoP proof
+```http
+Authorization: Atproto-Space-Credential <space-credential>
+Atproto-Space-Audience: did:plc:repoOwner
+Signature-Input: atproto-space-credential=("authorization" "atproto-space-audience");tag="atproto-space-credential"
+Signature: atproto-space-credential=:wNmSUA...:
 ```
 
-A host MUST validate the DPoP proof per RFC 9449, including:
+When syncing a repository, `Atproto-Space-Audience` is the DID of the account that the repo belongs to. If the space credential is being used to make a request against the space host, then `Atproto-Space-Audience` is the space authority DID.
 
-- verify the `typ` (`dpop+jwt`) and `alg` fields
-- verify the signature against the `jwk` in its own header
-- verify that the thumbprint of that `jwk` matches `cnf.jkt` of the presented space credential
-- verify that `ath` is the base64url-encoded SHA-256 hash of the space credential
-- verify that `htm` (HTTP method) and `htu` (request URL) match the request as received
-- verify that `iat` is recent
-- verify that `jti` (random nonce) is present and has not been seen before
+A host receiving a space credential MUST validate the authorization token and HTTP Message Signature, including:
+
+- require an `Authorization` header using the `Atproto-Space-Credential` scheme and an `Atproto-Space-Audience` header
+- validate the space credential, including its type, issuer, signature, subject space, and expiration
+- require the `atproto-space-credential` signature's covered component list to be exactly `("authorization" "atproto-space-audience")`, in that order
+- require the signature's `tag` to be `atproto-space-credential`
+- require the space credential's `cnf.kid` to be a P-256 `did:key`
+- verify the signature against `cnf.kid` using `ecdsa-p256-sha256`
+- verify that `Atproto-Space-Audience` equals the audience DID derived from the request
+
+The signature does not bind the HTTP method or URI. It MAY be reused with the same authorization token and audience DID until the token expires. Replay against the same audience is allowed.
+
+As with any HTTP authentication scheme, a host recognizes the `Atproto-Space-Credential` scheme regardless of case (e.g. `atproto-space-credential` is also accepted). This applies only to recognizing the scheme. The signature base is always computed over the `Authorization` field value exactly as received, with no case normalization.
 
 ### Credential flow
+
+Steps 1–2 may be skipped when no delegation token is needed.
 
 ```
 ┌──────┐          ┌────────────┐          ┌─────────────┐          ┌─────────────────┐
@@ -329,24 +317,45 @@ A host MUST validate the DPoP proof per RFC 9449, including:
     │                    ◄─ getDelegationToken ──┤                          │
     │                    ├── delegation token ───►                          │
     │                    │                       │   getSpaceCredential     │
-    │                    │                       ├─(token + DPoP            │
-    │                    │                       │   [+ attestation])──────►│
-    │                    │                       ◄──── space credential ────┤
+    │                    │                       ├─(token [+ attestation])─►│
+    │                    │                       │◄──── space credential ───┤
 ```
 
 1. The user authorizes the application via OAuth.
 2. The application calls `com.atproto.space.getDelegationToken` on the user's PDS, receiving a delegation token.
-3. The application presents the delegation token to the space authority via `com.atproto.space.getSpaceCredential`, with a DPoP proof signed by the key to bind the credential to, adding its own client attestation if the space gates on client app identity.
-4. The authority verifies what it received and, on authorization, returns a space credential bound to the key from the DPoP proof.
-5. The application reads the repo from each member's repo host with the credential and a [DPoP proof](#dpop-binding) addressed to that host.
+3. The application requests a credential from the space authority via `com.atproto.space.getSpaceCredential`, supplying the key to bind the credential to, and a delegation token and client attestation as required by the space.
+4. The authority verifies what it received and, on authorization, returns a space credential bound to the supplied key.
+5. The application reads the repo from each member's repo host with the credential and an [HTTP Message Signature](#presenting-a-space-credential) addressed to the repo owner DID.
 
-An application serving several users of a space does not necessarily need to maintain a space credential for each user. It may obtain its credential using any one user's session. When it loses all OAuth sessions for a space, it can no longer renew the credential and loses access.
+An application serving several users of a space does not necessarily need to maintain a space credential for each user. It may obtain its credential using any one user's session. If the space requires a delegation token and the application loses all OAuth sessions for that space, it can no longer renew the credential and loses access.
+
+### Credential expiration and revocation
+
+Short expiration is the primary revocation mechanism for space credentials. When an authority stops authorizing an application, or the application no longer has any authorized user's session available for a space that requires a delegation token, it can no longer obtain replacement credentials and its outstanding credentials expire after their remaining lifetime (generally 10 minutes).
+
+For cases that call for faster revocation, an authority MAY send `com.atproto.space.notifyCredentialRevoked` to repo hosts serving repos in the space. The notification identifies one or more outstanding credentials by `jti`. A repo host MUST reject a credential whose `jti` has been revoked for that space and retain the revocation for at least 60 minutes, after which no credential with that `jti` can remain valid. The method is authenticated with service auth from the space authority.
+
+For large spaces with many participants, revocation is more costly and less necessary. For smaller spaces, revocation may be more important but also fanout is less costly. The authority is in the best position to make this determination. Therefore, it is both the authority's responsibility and prerogative to fan out revocations. Revocation is idempotent so that the authority may safely retry delivery without creating another stored entry.
 
 ## Space repos
 
 A **space repo** is one account's set of records within one space, generally stored on that user's own PDS. A user has one space repo per space it participates in. Abstractly, a space repo offers a similar interface to a public [atproto repository](https://atproto.com/specs/repository): a key/value mapping where keys are path names (a collection NSID and an rkey) and values are CBOR-encoded records. PDSes expose a CRUD interface for interacting with a user's space repos.
 
-Each space repo is summarized by a **commit**. A commit is a short, signed digest that allows a syncer to check whether its copy of a repo matches the source without resyncing it in its entirety.
+Each space repo is summarized by a **commit**, which lets a syncer check whether its copy matches the source without resyncing the whole repo. The commit (`com.atproto.space.defs#commit`) contains:
+
+| Field | Type | Description |
+|---|---|---|
+| `ver` | integer | commit format version, currently `1` |
+| `repo` | string | author DID of the repo |
+| `space` | string | space URI (`at://authority/space/type/skey`) |
+| `rev` | string | commit revision (TID) |
+| `data` | bytes | `sha256` of the [LtHash state](#commit-digest) (32 bytes) |
+
+### Repo lifecycle
+
+A user's space repo is automatically created when they first write a record to that space. No separate repo-creation operation is needed. When the space authority is another DID, the user's PDS does not need to check whether the space exists before accepting the write. If the user is also the space authority (the space authority DID is the user's own DID), the space must already exist. 
+
+An empty space repo and a nonexistent space repo are equivalent. To delete a space repo, the user deletes all records within it. There is no separate repo deletion operation. Writing a record to that space again automatically creates the repo under the same rules above. Deleting a repo does not delete the space itself (see [Space deletion](#space-deletion)).
 
 ### Commit digest
 
@@ -358,6 +367,8 @@ The state is a fixed 2048-byte buffer, interpreted as 1024 little-endian unsigne
 
 Each record in the repo maps to one element, the UTF-8 bytes of `{collection}/{rkey}/{record_cid}`. As with the public repository, the components are currently limited to ASCII, so the encoding (though specified as UTF-8) is a no-op.
 
+`record_cid` is the [DASL CID](https://dasl.ing/cid.html) of the record's encoded bytes, using the [DRISL](https://dasl.ing/drisl.html) codec, rendered as a string.
+
 To **add** an element:
 
 1. Expand the element to 2048 bytes with BLAKE3 in XOF (extendable-output) mode.
@@ -368,67 +379,162 @@ To **remove** an element, perform the same process, but subtract its lanes inste
 
 Both operations are commutative, so the state depends only on the current set of records, not the order of writes. The empty repo's state is all zeroes.
 
-The commit's `hash` is `sha256(state)`, a 32-byte digest of the 2048-byte buffer. The repo host maintains the full state. Only the `hash` is carried in a commit.
+The commit's `data` is `sha256(state)`, a 32-byte digest of the 2048-byte buffer. The repo host maintains the full state. Only the digest is carried in a commit.
 
-### Commit signature
+### Commit authenticity
 
-A user does not sign the digest directly since a signature over the content digest would be a rebroadcastable proof of what the user wrote in a private space. Instead the signature covers only random per-commit bytes, and the digest is bound to those bytes by a symmetric MAC. A reader in the sync flow gets full authenticity and integrity, but a leaked commit is deniable and proves nothing about its contents to a third party.
+Atproto roots authority in DIDs rather than network locations. Space repos therefore need a way to verify data against a key published in the author's DID document.
 
-Both the signature and the MAC are domain-separated by a single "context" bytestring, built once and reused for both. The context bytestring uses the variable-length-vector encoding from [TLS 1.3](https://www.rfc-editor.org/rfc/rfc8446) (§3.4). It is composed of a fixed protocol tag followed by each variable field length-prefixed with a big-endian `uint16`.
+Unlike public broadcast data, permissioned data should not carry proof of authorship that survives a leak outside its access boundary, so space repos do not use signatures. Instead, the syncer and repo host establish an ephemeral shared secret, and the host uses it to compute a MAC (Message Authentication Code) over the commit or record. The syncer checks the MAC with the same secret. Since the syncer could have computed that MAC itself, it is unable to prove anything to anyone else.
 
-Note: these length prefixes are big-endian, following the TLS convention for wire encodings. This is the opposite byte order from the little-endian lanes of the [commit digest](#commit-digest), which follows the LtHash reference construction. The two come from different specs and each keeps its native byte order.
+MACs are not part of the serialized repo data. They are carried in an HTTP header described [below](#authenticity-headers).
+
+#### KEM key
+
+Each account with space repos publishes a P-256 key in its DID document's `verificationMethod` array. The key is used to establish shared secrets using a **key encapsulation mechanism (KEM)**, hence the `#atproto_kem` name.
+
+The entry MUST have:
+
+- `id`: `{authorDid}#atproto_kem`
+- `controller`: the author's DID
+- `type`: `Multikey`
+- `publicKeyMultibase`: the public key in [atproto multikey encoding](https://atproto.com/specs/did)
+
+The repo host holds the private key. This should be a dedicated keypair rather than a reuse of the `#atproto` signing key.
+
+The construction below is ECDH framed as a KEM. ECDH is not post-quantum secure, and the KEM framing lets a future version swap in a post-quantum KEM such as ML-KEM.
+
+#### Shared secret
+
+To request a MAC, the syncer:
+
+1. Resolves the author's `#atproto_kem` public key.
+2. Generates a new ephemeral P-256 keypair for this request.
+3. Performs ECDH using the new private key and the author's public key.
+4. Derives a 32-byte `shared_secret` from the ECDH result, as shown below.
+5. Keeps `shared_secret` and sends its new public key in the request header's `key_share` field.
+
+The syncer generates a new keypair for every request, including retries and each page of a paginated response.
+
+After authorizing the request, the repo host decodes the syncer's public key from `key_share`, performs ECDH using the author's private key, and derives the same `shared_secret`.
+
+Both sides derive `shared_secret` with HKDF-SHA256. The key encoding and HKDF inputs follow [RFC 9180 §4.1](https://www.rfc-editor.org/rfc/rfc9180#section-4.1).
 
 ```
-context = "atproto-space-v1"          // fixed protocol tag
-   || uint16be(len(space))  || space  // space URI (at://authority/space/type/skey)
-   || uint16be(len(author)) || author // author DID of the repo
-   || uint16be(len(rev))    || rev    // commit revision (TID)
-   || uint16be(len(ikm))    || ikm    // per-signature nonce (below)
+// The 32-byte x-coordinate of the shared point; both sides get the same value.
+dh = ECDH(syncer_private_key, author_public_key) // on the syncer
+   = ECDH(author_private_key, syncer_public_key) // on the repo host
+
+// Uncompressed points (following RFC 9180), even though did:key and multikey use the compressed form.
+syncer_key_bytes = 0x04 || syncer_public_key.x || syncer_public_key.y
+author_key_bytes = 0x04 || author_public_key.x || author_public_key.y
+keys = syncer_key_bytes || author_key_bytes
+
+// These are fixed labels from RFC 9180; 0x0010 identifies P-256 DHKEM.
+prefix = "HPKE-v1" || "KEM" || uint16be(0x0010)
+input = prefix || "eae_prk" || dh
+info = uint16be(32) || prefix || "shared_secret" || keys
+
+// Run HKDF with an empty salt and ask for 32 bytes of key material.
+shared_secret = HKDF-SHA256(input, salt="", info=info, length=32)
 ```
 
-A commit is then produced as follows:
+#### Authenticity headers
 
-1. Generate `ikm`, 32 fresh random bytes. A new `ikm` is generated for each reader the commit is served to.
-2. Compute `sig = sign(context)` with the user's signing key. The signed message only contains the space, author DID, revision and ikm, not the current repository hash.
-3. Compute `mac = HMAC-SHA256(HKDF-Expand(ikm, context, 32), hash)`, binding the repository hash to this commit's context.
+Methods that return a [commit](#commit-mac) or [record](#record-mac) require a MAC when called with a space credential. The syncer requests one with an `Atproto-Space-Want-Mac` header. Its value is a [Structured Field Dictionary](https://www.rfc-editor.org/rfc/rfc9651#section-3.2):
 
-`HKDF-Expand` is the expand step of HKDF-SHA256 ([RFC 5869](https://www.rfc-editor.org/rfc/rfc5869) §2.3): the 32-byte `ikm` is used directly as the pseudorandom key with `context` as the `info` input. There is no extract step because `ikm` is already uniformly random.
+```http
+Atproto-Space-Want-Mac: type="atproto-space-repo", ver=1, key_share="did:key:zDna..."
+```
 
-A reader verifies `sig` against the user's signing key (authenticity), then recomputes `mac` and compares (integrity). Because the digest is bound by a *symmetric* MAC keyed from the public `ikm`, anyone holding the commit can compute a valid `mac` for any `hash`, so a rebroadcast commit cannot prove what the user wrote, only that they signed a `(space, author, rev, ikm)` context.
+`key_share` is the syncer's ephemeral P-256 public key as a `did:key`, abbreviated above.
 
-The signed commit (`com.atproto.space.defs#signedCommit`):
+The host returns the 32-byte MAC as a base64 byte sequence in an `Atproto-Space-Mac` response header, and lists the request header in `Vary`:
 
-| Field | Type | Description |
-|---|---|---|
-| `ver` | integer | commit format version, currently `1` |
-| `hash` | bytes | `sha256` of the LtHash state (32 bytes) |
-| `ikm` | bytes | per-signature nonce (32 random bytes) |
-| `sig` | bytes | `sign(context)` by the user's signing key |
-| `mac` | bytes | `HMAC-SHA256(HKDF-Expand(ikm, context, 32), hash)` |
-| `rev` | string | commit revision (TID), also bound into `context` |
+```http
+Atproto-Space-Mac: type="atproto-space-repo", ver=1, mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
+Vary: Atproto-Space-Want-Mac
+```
 
-The `ver` field is fixed at `1` for this version of the protocol. It corresponds to the version carried in the `context` protocol tag (`atproto-space-v1`).
+The fields shown are required. The response's `type` and `ver` match the request's. Missing or malformed headers, unsupported types or versions, and invalid keys are errors.
+
+If MAC verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
+
+#### Commit MAC
+
+`getLatestCommit`, `getRepo`, and `listRepoOps` responses carry a [commit](#space-repos). They use `type="atproto-space-repo"`, and `ver` is the commit's `ver`. The MAC covers the commit's `space`, `repo`, `rev`, and `data`. The string fields are UTF-8, each prefixed with its byte length as a big-endian `uint16`.
+
+```
+context = "atproto-space-repo-v1"   // protocol tag: "{type}-v{ver}"
+   || uint16be(len(space)) || space // space URI (at://authority/space/type/skey)
+   || uint16be(len(repo))  || repo  // author DID of the repo
+   || uint16be(len(rev))   || rev   // commit revision (TID)
+
+mac = HMAC-SHA256(shared_secret, context || data)
+```
+
+The syncer checks that the commit's `repo` and `space` match the requested repo, then recomputes the MAC and compares it with `mac`.
+
+A `listRepoOps` page without a commit has no response header. Its operations are checked when the final page's commit `data` is compared against the syncer's running set hash.
+
+#### Record MAC
+
+`getRecord` responses use `type="atproto-space-record"` and `ver=1`. The MAC covers the record's full [URI](#addressing) and CID:
+
+```
+context = "atproto-space-record-v1" // protocol tag: "{type}-v{ver}"
+   || uint16be(len(uri)) || uri     // full record URI, UTF-8
+
+mac = HMAC-SHA256(shared_secret, context || record_cid_bytes)
+```
+
+`record_cid_bytes` is the binary CID encoding. The syncer checks that the URI matches the request, verifies the MAC in constant time, then checks the record's DAG-CBOR encoding against the CID.
 
 ### Repo serialization
 
-A space repo may be serialized to a [CAR file](https://dasl.ing/car.html), the same serialization format used to export a public atproto repository. It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
+A space repo is serialized as a [STAR-lite v1 file](https://tangled.org/microcosm.blue/star/tree/main/v1-star) (STAR for short). It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
 
-The CAR header declares **two roots**, in order:
+STAR is an archive format with a metadata header followed by a sequence of key/value pairs. The `atproto-space-repo` profile defined here uses record paths as keys and encoded records as values.
 
-1. the **signed commit** — the [`signedCommit`](#commit-signature) block described above
-2. the **index** — a [DRISL](https://dasl.ing/drisl.html) (DAG-CBOR) map from `"{collection}/{rkey}"` to the record's CID, with keys in canonical DAG-CBOR map order (shortest key first, then bytewise)
+A STAR file takes the following form:
+```
+|-------- header --------| |--------------------- data (records) -----------------------|
+[ magic | len | metadata ] [ len | path | len | record ] [ len | path | len | record ]...
+```
 
-The record blocks follow the two roots, and MUST appear in the same order as their index entries.
+The magic bytes are `0x2A 0x6C 0x01 0x00`. Each `len` is an unsigned varint giving the byte length of the following item. Framing and parsing follow STAR's rules.
 
-The serialization carries the information needed to reconstruct and verify the repo, and a consumer can validate it as a stream:
+The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map, containing `$type` set to `atproto-space-repo` and all fields of the [commit](#space-repos). The commit's MAC is carried in the response's [`Atproto-Space-Mac` header](#authenticity-headers), not in the metadata.
 
-1. Verify the commit's signature and MAC. The commit's `hash` is now trusted.
-2. Fold each index entry's `{collection}/{rkey}/{record_cid}` into a running [set hash](#commit-digest) as it is read, then compare the result against the commit's `hash`. This authenticates the whole index without reading a single record.
-3. Verify each record block against its own CID as it streams past.
+Here is an example metadata object for a space repo:
+```json
+{
+  "$type": "atproto-space-repo",
+  "ver": 1,                    // commit format version
+  "repo": "did:example:alice", // author DID of the repo
+  "space": "at://did:example:forum/space/com.atmoboards.forum/general",
+  "rev": "3mwcj3b6uak2f",      // commit revision (TID)
+  "data": 0x...                // 32-byte SHA-256 digest of the LtHash state
+}
+```
+
+The body contains every record in the repo:
+
+- Each key is the UTF-8 encoding of a valid record path, `{collection}/{rkey}`
+- Each value is the record's canonical DRISL encoding, at most 1 MiB (1,048,576 bytes)
+- Records MUST appear in strict lexicographic order of the key bytes, with no duplicate keys.
+
+Pairs continue until EOF; an empty repo has none. A consumer can reconstruct and verify the snapshot as a stream:
+
+1. Validate the metadata, including `$type` and the commit version, and check that `repo` and `space` match the requested repo. Verify the [commit MAC](#commit-mac) from the response header. The commit's `data` is then trusted.
+2. Starting with an empty [set hash](#commit-digest), read each path/record pair, validate the path and record encoding, compute the record's CID, and fold `{collection}/{rkey}/{record_cid}` into the running set hash.
+3. Once every record has been streamed, compare `sha256(state)` against the commit's `data`. Only a match establishes that the complete repo has been received.
+
+Readers MUST reject the entire archive on a parse error, non-canonical metadata, an exceeded length limit, a duplicate or out-of-order key, a MAC mismatch, or a digest mismatch.
 
 ## Sync
 
-Sync for atproto spaces works much like public broadcast sync. Applications build views by pulling repos from their hosts. The major difference is that there is no relay to provide a collated firehose of data for the network as space repositories are by their nature non-rebroadcastable. An application pulls directly from each repo host and is responsible for keeping its own copy in sync.
+Data records are distributed similarly to public broadcast data: accounts publish records in repos on their hosts, and application services build views by aggregating records from multiple accounts. One major difference is that there are no relays that provide a collated firehose for the whole network. Instead, space hosts facilitate synchronization at the space level by aggregating metadata for all repositories which have made authorized writes to the space. Applications can enumerate repositories in a space and receive update notifications from the space host, and then fetch the repo data itself from repo hosts.
 
 ### Incremental sync
 
@@ -438,7 +544,7 @@ To advance, a syncer calls `com.atproto.space.listRepoOps` with a `since` revisi
 
 By default `listRepoOps` inlines each created or updated record's value alongside its operation, so a syncer advances in a single call without a `getRecord` round-trip per write. Only the current value for a path is inlined. If a record has been updated or deleted by a later operation, the host omits the intermediate (now stale) values. A syncer may set `excludeValues` to receive only the operation metadata (for example, to drive selective `getRecord` calls).
 
-If a given oplog response includes the last available operation that occurred to a repo, then the response must also include the member's current signed [commit](#commit-signature). The syncer compares the commit's `hash` against its own running set hash. If they match, the syncer is fully in sync and the commit's signature authenticates that state. If they do not, the syncer has diverged and must fall back to a recovery process.
+If a given oplog response includes the last available operation that occurred to a repo, then the response must also include the member's current [commit](#space-repos). The syncer verifies the response MAC and compares the commit's `data` against its own running set hash. If they match, the syncer is fully in sync. If they do not, the syncer has diverged and must fall back to a recovery process.
 
 Sync is self-healing because its correctness rests on the set hash comparison rather than on receiving every operation. A missed operation is detected on a subsequent sync. A total disjunction in repository history is also recognizable, and is recovered from by syncing the repository contents in their entirety.
 
@@ -446,9 +552,7 @@ The oplog is a transport optimization rather than a committed data structure. It
 
 ### Full-state recovery
 
-In cases in which a syncer cannot proceed incrementally, it must recover by syncing the full state of the repository.
-
-To do so, a syncer fetches the whole repo as a [serialized CAR](#repo-serialization) from `com.atproto.space.getRepo`. It folds the index into a running set hash and compares that against the signed commit to authenticate the index, then validates each record block against its index CID as it streams past, rebuilding its local copy. A syncer replacing an existing copy diffs the recovered structure against what it holds and keeps only the records it is missing.
+When a syncer cannot proceed incrementally, it fetches the whole repo as a [STAR archive](#repo-serialization) from `com.atproto.space.getRepo`. After verifying the archive, it updates its local copy to match, including removing records absent from the recovered state.
 
 For the narrower case of *healing* a copy that has only slightly diverged, a syncer may prefer to avoid transferring the whole repo. It can fetch the latest commit through `com.atproto.space.getLatestCommit`, enumerate the repo's structure (paths → CIDs) with `com.atproto.space.listRecords` using `excludeValues`, diff that lightweight listing against its local copy, and fetch just the differing records with `com.atproto.space.getRecord`. This trades the single `getRepo` round-trip for a smaller total transfer when most of the repo is already held.
 
@@ -460,25 +564,23 @@ A syncer may discover which blobs a repo references through `com.atproto.space.l
 
 ### Write notifications
 
-Write notifications inform syncers that a repo has advanced, so they can pull promptly instead of continuously polling for updates. A notification contains no record data, and states only that a given repo in a given space has reached a new `rev` and `hash`.
+Write notifications inform syncers that a repo has been updated, so they can pull promptly instead of continuously polling for updates. A write notification contains no record data, and states only that a given repo in a given space has reached a new `rev` and `data`.
 
-A syncer subscribes to notifications by calling `com.atproto.space.registerNotify`. When called on a space host, this method subscribes to writes for all repos in a space. Generally, syncers should subscribe to the space host for all write notifications from the space. However, it can also be called on particular repo hosts to receive notifications for specific repos.`registerNotify` is authenticated with a space credential. The service that was registered against should return the expiration time for the registration which may be longer than the expiration window of the space credential.
+Space hosts receive write notifications from repo hosts, and sequence updates over the entire space. A syncer subscribes to notifications by calling `com.atproto.space.registerNotify` on the space host (using a space credential for authorization) and subsequently receives notifications for all repos. Registrations have a fixed time duration, indicated by an expiration time in the API response body. A registration can be withdrawn with `com.atproto.space.unregisterNotify`, or simply left to expire.
 
-A registration is withdrawn with `com.atproto.space.unregisterNotify`, or simply left to expire.
+When an account writes to a space repo, their PDS sends a `com.atproto.space.notifyWrite` containing the updated repo's `rev` and `data` to the space host associated with the space authority (unless the authority is the repo account itself). Notification between repo hosts and space hosts is automatic and does not require registration. The space host should reject write notifications for repos which are not authorized to write to the space. Repo hosts are responsible for reliably updating the space host with the latest repo state, and should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors. Notification API calls are authenticated using service auth. The space host is not expected to verify the integrity or authenticity of the repo `data`. Similar to public repository synchronization, the repo revision (`rev`) is a timestamp identifier (TID) which must increase monotonically (updates with a lower or equal revision should be ignored), and must not correspond to a future timestamp (beyond a short clock skew window).
 
-When an account writes, their PDS sends a `com.atproto.space.notifyWrite` containing the repo's current `rev` and `hash` to each endpoint registered for that repo. A PDS may not otherwise know which services are syncing the space, which is why the **space authority** registers itself as a subscriber on each repo host. Repo hosts notify the authority, and the authority forwards each notification to the endpoints registered with it for the space. Each notified syncer then pulls the updated repo directly from the relevant repo host. The authority only routes notifications and does not carry record data.
+When the space host receives a valid write notification, it updates a local table tracking the state of each repo in the space, and then forwards notifications to all of the currently registered syncers. The space host is only responsible for reasonable-effort delivery of this synchronization hop. The space host sequences updates with a separate revision (TID) for the overall space, and indicates the current and previous space revision in each forwarded write notification. Syncers can detect missed notifications from a gap in space revisions, and request a list of all repos in the space updated "since" an earlier space revision using the `com.atproto.space.listRepos` endpoint. Syncers can use the same endpoint to ensure synchronization state after any duration of downtime.
 
-A space authority controls which writers it tracks and which write notifications it forwards, and may exclude writers for any reason including spam or other abuse.
+When a syncer receives a valid write notification, it performs repo sync directly with the relevant repo host, not through the space host. The space host (if distinct from the repo host) never hosts or distributes record data, only repo update metadata.
 
-A repo host does not need an explicit out-of-band registration step from the authority to know where to send these notifications. On the first write into a repo for a shared space (one whose authority is not the account's own DID), the repo host resolves the space authority's `#atproto_space_host` endpoint and **auto-registers** it as a subscriber for that repo. Personal-data spaces, where the authority is the account's own DID and the PDS plays both roles, need no such registration.
-
-Notifications are **best-effort** and are not required for eventual consistency. If a notification is dropped, the affected repo is caught up by a later write's notification, or by a periodic sweep by the syncer. A sweep may be done over the [writer set](#the-sync-boundary-writer-set). `com.atproto.space.listRepos` returns each repo's current `rev`, so a syncer can compare those revisions against the revisions it last pulled and re-sync only the repos that have advanced, rather than polling each repo individually.
+The space authority controls which writers it tracks and which write notifications it forwards, and may exclude or rate-limit them for any reason, including spam or other abuse.
 
 ### The sync boundary (writer set)
 
 Syncing an individual repo requires the syncer to know that the repo exists. To sync a space in full, or to begin syncing a space for the first time, an application requires the set of accounts whose repos hold data in the space. This **writer set** is retrieved from the space authority via `com.atproto.space.listRepos`.
 
-Because it subscribes to updates from every repository in the space, the authority can easily maintain a complete and current record of which repos hold data in the space. Alongside each account, `listRepos` returns that repo's current `rev` and `hash`.
+Because it receives updates from every repository in the space, the authority can easily maintain a complete and current record of which repos hold data in the space. Alongside each account, `listRepos` returns that repo's current `rev` and `data`.
 
 The writer set is a simple fetch and carries no commit or history. It enumerates accounts that have **written at least one record** into the space, not the broader set of accounts that are merely *allowed* to write (which the authority may not even track) nor those that may only read it. Accounts that may read the space are never enumerated at the protocol-level, though applications may choose to enumerate them through records published in the space.
 
@@ -486,13 +588,19 @@ The writer set is what the authority *claims*, and is not itself authoritative f
 
 ## Space deletion
 
-A space may be deleted by its authority. The authority stops issuing credentials and no longer answers for the space. The authority also deletes its own repo in the space.
+A space may be deleted by its authority. The authority stops issuing credentials for the space and deletes all records in its own repo in the space.
 
-The authority then notifies the syncers registered for the space with `com.atproto.space.notifySpaceDeleted`, over the same best-effort path as write notifications.
+The authority then notifies the syncers registered for the space with `com.atproto.space.notifySpaceDeleted`. The authority is responsible for reliably delivering this notification to each registered syncer, with the same rigor as a repo host delivering write notifications to the space host: it should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors.
 
 A **syncer** should delete every copy of the space's data it holds, both the repos it pulled and any derived state, as it is no longer authorized to retain them. A syncer that misses the notification learns the space is gone on its next credential renewal. The authority should answer `getSpaceCredential` for a deleted space with an explicit `SpaceDeleted` error. A renewal that fails for any other reason says nothing about the space, and the syncer retains its copy.
 
+To support this, the authority SHOULD retain a record of the deletion until each syncer that was registered for notifications at the time of deletion has either been successfully notified or seen its registration expire. This gives any syncer that missed the notification the opportunity to renew its credential and learn of the deletion.
+
+If the space authority's account is deleted, all spaces under that authority are deleted with it. Syncers learn of this through the authority's account events, as with any other [account deletion](#account-lifecycle).
+
 Members' repo hosts are not notified on deletion. A member's records are the member's own data, and deletion of the space does not entitle the authority to delete all data in it. The records simply become unreadable to everyone but the member's own account. The space's deletion may be surfaced by the application which can aid the user in cleaning up no longer used data.
+
+An authority MAY recreate a deleted space with the same space type and `skey`. If a member still has records under that space, they become readable again under the recreated space's access policy.
 
 ## OAuth scopes
 
@@ -554,7 +662,7 @@ The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.
 >
 > For example, on a `simplespace` space, `manage=update` authorizes the policy's own `com.atproto.simplespace.putConfig`, `putMember`, and `removeMember`.
 
-`manage=create` authorizes creating a space (via `com.atproto.space.createSpace`) of the given `spaceType` under the given authority. Unlike every other operation, it concerns a space that does not yet exist, so scoping it to a concrete `skey` is unusual. It is typically granted with `skey=*` ("this app may create spaces of this type").
+`manage=create` authorizes creating a space (via `com.atproto.space.createSpace`) of the given `spaceType` under the given authority. It concerns a space that does not yet exist, so scoping it to a concrete `skey` is unusual. It is typically granted with `skey=*` ("this app may create spaces of this type").
 
 ### Examples
 
@@ -618,14 +726,14 @@ This grouping describes kinds of methods, not separate services. A single servic
 
 | Method | Role | Type | Auth | Description |
 |---|---|---|---|---|
-| `getSpaceCredential` | host | procedure | delegation token + [DPoP](#dpop-binding) (+ client attestation) | Exchange a delegation token for a space credential. |
-| `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `hash`. |
+| `getSpaceCredential` | host | procedure | none (delegation token and client attestation included in request body) | Request a space credential. |
+| `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `data`. |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
 | `getBlob` | repo | query | OAuth / space credential | Fetch a blob by CID. |
 | `listBlobs` | repo | query | OAuth / space credential | List the blob CIDs referenced by records in a repo. |
-| `getLatestCommit` | repo | query | OAuth / space credential | The current signed [commit](#commit-signature) for a repo. |
-| `getRepo` | repo | query | OAuth / space credential | Download a whole repo as a [serialized CAR](#repo-serialization) for full-state backfill. |
+| `getLatestCommit` | repo | query | OAuth / space credential | The current [commit](#space-repos) for a repo. |
+| `getRepo` | repo | query | OAuth / space credential | Download a whole repo as a [STAR archive](#repo-serialization) for full-state backfill. |
 | `listRepoOps` | repo | query | OAuth / space credential | Primary sync mechanism. A repo's [operation log](#incremental-sync) since a given revision, inlining record values by default. Set `excludeValues` for metadata-only entries. |
 | `getDelegationToken` | pds | query | OAuth | Mint a [delegation token](#delegation-token) for a space. Served by the requesting user's PDS. |
 | `createRecord` | pds | procedure | OAuth | Create a record in the caller's repo in the specified space. |
@@ -637,10 +745,11 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `updateSpace` | pds | procedure | OAuth (`manage`) | Change a space's [`policy`](#space-policy) (policy migration). |
 | `deleteSpace` | pds | procedure | OAuth (`manage`) | Delete a space. |
 | `getSpace` | pds | query | OAuth `read_self` / space credential | Describe a space: its identity and current [`policy`](#space-policy). |
-| `registerNotify` | repo/host | procedure | space credential | Register a service to be notified of writes. On the space host, subscribes to the whole space. On a repo host with a `repo`, subscribes to that repo. |
-| `unregisterNotify` | repo/host | procedure | space credential | Withdraw a `registerNotify` registration. |
-| `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `hash`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
+| `registerNotify` | host | procedure | space credential | Register a service to be notified of writes for the whole space. |
+| `unregisterNotify` | host | procedure | space credential | Withdraw a `registerNotify` registration. |
+| `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `data`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
 | `notifySpaceDeleted` | syncer | procedure | service auth | Notify that a space was deleted and its data should be dropped. Sent by the authority to the syncers registered for the space. |
+| `notifyCredentialRevoked` | repo | procedure | service auth | Notify a repo host that the authority has revoked one or more space credentials, identified by `jti`. |
 
 ## Space policy
 
@@ -706,7 +815,7 @@ The two policy fields and `appAccess` are open unions at the schema layer. A hos
 - `public`: authorize any user.
 - `managing-app`: ask `managingApp` whether to authorize the user via [`checkUserAccess`](#the-managing-app) below. This enables dynamic policies (e.g. follower-gating) without the PDS maintaining a list.
 
-`readPolicy` and `writePolicy` each use the same policy variants and default to `member-list`. 
+`readPolicy` and `writePolicy` each use the same policy variants and default to `member-list`.
 
 **App access** decides per-app authorization. It is an open union with two current variants:
 - `#open` (default): any application may access the space. No [client attestation](#client-attestation) is required, so public clients work.
@@ -750,10 +859,12 @@ Finally, and relatedly, the sync APIs are not open to the public, so resource ab
 
 ### Account lifecycle
 
-An account's participation in a space is tied to the same DID and signing key as its public atproto identity. The lifecycle events that already exist, migration, key rotation, deactivation, and deletion, therefore all function the same way in the context of atproto spaces.
+An account's participation in a space is tied to the same DID as its public atproto identity. The lifecycle events that already exist, migration, key rotation, deactivation, and deletion, therefore all function the same way in the context of atproto spaces.
 
-**Migration.** Moving a space repo between hosts functions the same as migrating a public repository. The main difference is that a user has many space repos rather than one, so account migration flows will need to enumerate and track all of an account's space repos (via `listSpaces`) and the blobs associated with them (via `listBlobs`).
+**Migration.** Moving a space repo between hosts functions the same as migrating a public repository. The main difference is that a user has many space repos rather than one, so account migration flows will need to enumerate and track all of an account's space repos (via `listSpaces`) and the blobs associated with them (via `listBlobs`). Since the repo host holds the KEM private key, the new host publishes its own `#atproto_kem` key as part of migration.
+
+**Key rotation.** The account rotates its KEM key by replacing `#atproto_kem` in its DID document. Requests using the old key may fail MAC verification and need to [retry](#authenticity-headers). This does not change repo hashes or revisions.
 
 **Deactivation & deletion.** Deactivation and deletion function exactly as they do for [public broadcast](https://atproto.com/specs/account#hosting-status). If an account is deleted, downstream services are expected to delete all data associated with the account, whether public or in spaces. If an account is deactivated, downstream services are expected to stop serving all data associated with it, whether public or in spaces.
 
-**Identity & account events.** Applications currently learn about changes to an account's status or identity (such as its signing key and handle) via events on the firehose (`com.atproto.sync.subscribeRepos`). These same account updates apply to space repos in exactly the same manner. This means an application that syncs only space repos, and no public repositories, still needs to subscribe to a firehose to receive `#account` and `#identity` events. Future work may include an additional subscription endpoint that broadcasts only those two event types without the full stream of public repository commits.
+**Identity & account events.** Applications currently learn about changes to an account's status or identity (such as its signing key, KEM key, and handle) via events on the firehose (`com.atproto.sync.subscribeRepos`). These same account updates apply to space repos in exactly the same manner. This means an application that syncs only space repos, and no public repositories, still needs to subscribe to a firehose to receive `#account` and `#identity` events. Future work may include an additional subscription endpoint that broadcasts only those two event types without the full stream of public repository commits.
