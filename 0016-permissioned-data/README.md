@@ -327,7 +327,7 @@ Steps 1–2 may be skipped when no delegation token is needed.
 4. The authority verifies what it received and, on authorization, returns a space credential bound to the supplied key.
 5. The application reads the repo from each member's repo host with the credential and an [HTTP Message Signature](#presenting-a-space-credential) addressed to the repo owner DID.
 
-An application serving several users of a space does not necessarily need to maintain a space credential for each user. It may obtain its credential using any one user's session. If the space requires a delegation token and the application loses all OAuth sessions for that space, it can no longer renew the credential and loses access.
+An application serving several users of a space does not necessarily need to maintain a space credential for each user. It may obtain its credential using any one user's session. If the space requires a delegation token and the application loses all OAuth sessions for that space, it can no longer renew the credential and loses access. How an application decides which of its users may see a space is discussed under [Access in applications](#access-in-applications).
 
 ### Credential expiration and revocation
 
@@ -804,6 +804,18 @@ The app evaluates the request against whatever application-layer state it mainta
 ## Considerations
 
 This section is non-normative. It discusses how atproto spaces interact with concerns that span the whole protocol. The short answer to most of them is that they behave much like public broadcast, because they deliberately have the same shape: DID-based authority, per-user repositories, lexicon-typed records, and applications that crawl repos to build views.
+
+### Access in applications
+
+Applications are responsible for enforcing user access on space data that they serve. 
+
+When an application holds a user's OAuth session, it can learn that user's access from the space host directly. While a [space credential](#space-credential) lets an application sync a space, it does not tell it which of its users should see that space.
+
+An application serving many users from one copy of a space makes that determination based on what the space communicates about access. Often this is communicated in the form of records published into the space by the space authority that describe the access policy. For example, membership records published in a memberspace (@TODO add link after merging https://github.com/bluesky-social/proposals/pull/129).
+
+Access may be described through other application semantics as well. For instance a space may have the semantic that "accounts that the space authority follows" have access to the space. This may gate actual space access via a `managedspace`, but the syncing application is also responsible for understanding and enforcing this application semantic if the views that it serves.
+
+A space that wants to be served by feeds and other third-party services that are added as "service accounts" to the space should publish its access rules as records.
 
 ### Moderation
 
