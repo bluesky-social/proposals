@@ -805,7 +805,7 @@ A user must be authorized by the policy **and** their app by `appAccess` for a c
 
 ### Publishing to readers
 
-By default, a space's policy and member list are visible only to the authority, through `getSpace` and `listMembers`. However, sometimes the policy should be visible to readers or applications as well.
+By default, a space's policy and member list are visible only to the authority, through `getSpace` and `listMembers`. However, sometimes this configuration should be visible to readers or applications as well.
 
 For this, `memberspace` and `managedspace` carry a `publishPolicy` flag, and `memberspace` also carries `publishMembers`. When a flag is set, the authority's PDS publishes that state as records in the authority's own repo in the space, where they sync to readers like any other record.
 
@@ -814,9 +814,9 @@ For this, `memberspace` and `managedspace` carry a `publishPolicy` flag, and `me
 | `publishPolicy` | `com.atproto.space.policy` | `self` | `policy`: the current policy object |
 | `publishMembers` | `com.atproto.memberspace.member` | the member's DID | `read`, `write` |
 
-The config remains the source of truth for access, and records are a copy. It is the PDS's responsibility to keep the two in sync. For instance, when a client calls `putMember` on a space with visible member list, the PDS should update both the configuration and publish a record in the space. The PDS should reject direct writes of membership records through repo CRUD methods.
+The config remains the source of truth for access, and records are a copy. It is the PDS's responsibility to keep the two in sync. For instance, when a client calls `putMember` on a space with a published member list, the PDS should both update the configuration and publish a record in the space. The PDS should reject direct writes of these records through repo CRUD methods. Since any member can write records of these types to their own repo, readers should only treat them as authoritative in the authority's repo.
 
-Note that even if a a member list isn't published, members that have written to the space can still be enumerated through the writer set (LINK).
+Note that even if a member list isn't published, members that have written to the space can still be enumerated through the [writer set](#the-sync-boundary-writer-set).
 
 ### `personalspace`
 
@@ -870,14 +870,14 @@ The authority passes the space, the user, the `access` being checked (`read` or 
 
 ## Account migration
 
-Account migration for space data works similarly to the public repository repository. The main difference is that a user has many space repos. Each space repository can be exported from the old host through `space.getRepo` and imported to the new host through `space.importRepo`.
+Account migration for space data works similarly to migrating a public repository. The main difference is that a user has many space repos. Each space repository can be exported from the old host through `space.getRepo` and imported to the new host through `space.importRepo`. As well, the new host generates its own [KEM key](#kem-key) and publishes it in the account's DID document.
 
-For spaces that the account is the authority of, the PDS also holds some configuration state that isn't necessarily published as a record in a space repo (e.g. the space's policy or member list). This is exported and imported as a [space host archive](#space-host-archive)
+For spaces that the account is the authority of, the PDS also holds some configuration state that isn't necessarily published as a record in a space repo (e.g. the space's policy or member list). This is exported and imported as a [space host archive](#space-host-archive).
 
 On top of the usual account migration flow:
 
 1. Enumerate the account's spaces on the old host with `listSpaces`.
-2. For each space the account is the authority of, download its [space host archive](#space-host-archive) with `exportSpace` and upload it to the new host with `importSpace`. This must come before importing the accounts's own repo in that space.
+2. For each space the account is the authority of, download its [space host archive](#space-host-archive) with `exportSpace` and upload it to the new host with `importSpace`. This must come before importing the account's own repo in that space.
 3. For each space repo, download it with `getRepo` and upload it with `importRepo`, then copy over the blobs it references (via `listBlobs`).
 
 Notification registrations, credential revocations, and deleted space tombstones are not carried over on migration.
@@ -892,7 +892,7 @@ The metadata simply contains the space ref and the current `rev` (the space-leve
   "$type": "atproto-space-host",
   "ver": 1,
   "space": "at://did:example:forum/space/com.atmoboards.forum/general",
-  "rev": "3mwcj3b6uak2f",
+  "rev": "3mwcj3b6uak2f"
 }
 ```
 
@@ -900,7 +900,7 @@ The body has three sections, in this order:
 
 1. **Policy.** A single `policy` key, whose value is the space's policy object.
 2. **Policy state.** Any additional config relating to the policy. Keys are structured like repository keys (e.g. `{NSID}/{rkey}`) and the policy defines their values.
-3. **Writers.** One `writer/{did}` key per account in the writer set, other than the authority itself. Each value carries all required information to support `listRepos` after migration, including `rev`, `data`, and `spaceRev`. 
+3. **Writers.** One `writer/{did}` key per account in the writer set, other than the authority itself. Each value carries all required information to support `listRepos` after migration, including `rev`, `data`, and `spaceRev`.
 
 Within each section, keys MUST be in strict lexicographic order of the key bytes, with no duplicates.
 
