@@ -736,11 +736,14 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `putRecord` | pds | procedure | OAuth | Create or update a record. |
 | `deleteRecord` | pds | procedure | OAuth | Delete a record. |
 | `applyWrites` | pds | procedure | OAuth | Apply a batch of creates, updates, and deletes to one repo atomically. |
-| `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in. |
+| `importRepo` | pds | procedure | OAuth (`account:repo?action=manage`) | Import a space repo from a [STAR archive](#repo-serialization) during [account migration](#account-migration). |
+| `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in or is the authority of. |
 | `createSpace` | pds | procedure | OAuth (`manage`) | Create a space with a given [`policy`](#space-policy); caller becomes the authority. |
 | `updateSpace` | pds | procedure | OAuth (`manage`) | Replace a space's [`policy`](#space-policy). |
 | `deleteSpace` | pds | procedure | OAuth (`manage`) | Delete a space. |
-| `getSpace` | host | query | OAuth `read_self` / space credential | Describe a space: its identity and current [`policy`](#space-policy). |
+| `getSpace` | host | query | OAuth `read_self` | Describe a space: its identity and current [`policy`](#space-policy). |
+| `exportSpace` | host | query | OAuth `read_self` | Download a space's host-side state as a [space host archive](#space-host-archive). |
+| `importSpace` | pds | procedure | OAuth (`account:repo?action=manage`) | Import a space from a [space host archive](#space-host-archive) during [account migration](#account-migration). |
 | `registerNotify` | host | procedure | space credential | Register a service to be notified of writes for the whole space. |
 | `unregisterNotify` | host | procedure | space credential | Withdraw a `registerNotify` registration. |
 | `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `data`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
@@ -800,6 +803,21 @@ Each baseline policy carries an `appAccess` field that decides per-app authoriza
 
 A user must be authorized by the policy **and** their app by `appAccess` for a credential to be minted. `appAccess` does not apply to writes because write notifications authenticate the writer's repo host rather than the client application that originated the write.
 
+### Publishing to readers
+
+By default, a space's policy and member list are visible only to the authority, through `getSpace` and `listMembers`. However, sometimes the policy should be visible to readers or applications as well.
+
+For this, `memberspace` and `managedspace` carry a `publishPolicy` flag, and `memberspace` also carries `publishMembers`. When a flag is set, the authority's PDS publishes that state as records in the authority's own repo in the space, where they sync to readers like any other record.
+
+| Flag | Collection | Record key | Value |
+|---|---|---|---|
+| `publishPolicy` | `com.atproto.space.policy` | `self` | `policy`: the current policy object |
+| `publishMembers` | `com.atproto.memberspace.member` | the member's DID | `read`, `write` |
+
+The config remains the source of truth for access, and records are a copy. It is the PDS's responsibility to keep the two in sync. For instance, when a client calls `putMember` on a space with visible member list, the PDS should update both the configuration and publish a record in the space. The PDS should reject direct writes of membership records through repo CRUD methods.
+
+Note that even if a a member list isn't published, members that have written to the space can still be enumerated through the writer set (LINK).
+
 ### `personalspace`
 
 `com.atproto.personalspace.policy` is for data that only its owner should see, such as bookmarks, mutes, or drafts. Only the space authority's own account is authorized to read, and the authority tracks no other writers.
@@ -819,6 +837,8 @@ A user must be authorized by the policy **and** their app by `appAccess` for a c
 | `readAccess` | `public` \| `members` (default) | Who the authority authorizes to read. |
 | `writeAccess` | `public` \| `members` (default) | Whose writes the authority tracks and forwards notifications for. |
 | `appAccess` | open union (`#open` \| `#allowList`) | How the authority decides whether to authorize an _app_. |
+| `publishPolicy` | boolean (default false) | [Publish](#publishing-to-readers) the policy to readers. |
+| `publishMembers` | boolean (default false) | [Publish](#publishing-to-readers) the member list to readers. |
 
 `public` authorizes any user. `members` authorizes a user whose member-list entry has the corresponding `read` or `write` boolean set to true.
 
@@ -840,12 +860,60 @@ Each member-list entry carries required `read` and `write` booleans, and `putMem
 |---|---|---|
 | `managingApp` | service identifier (DID + fragment) | Required. The service the authority asks whether to authorize a user. |
 | `appAccess` | open union (`#open` \| `#allowList`) | How the authority decides whether to authorize an _app_. |
+| `publishPolicy` | boolean (default false) | [Publish](#publishing-to-readers) the policy to readers. |
 
 | Method | Type | Auth | Description |
 |---|---|---|---|
 | `checkUserAccess` | query | service auth (from the space authority) | Served by the `managingApp` (not the PDS). Asks whether to authorize a user to read or write. |
 
 The authority passes the space, the user, the `access` being checked (`read` or `write`), and for reads, the attested `client_id` if one was presented. Write checks carry no client, since `notifyWrite` does not identify the originating app. Because reads and writes are checked separately, the app can express mixed arrangements, such as a paid newsletter that subscribers may read but only the authority writes to.
+
+## Account migration
+
+Account migration for space data works similarly to the public repository repository. The main difference is that a user has many space repos. Each space repository can be exported from the old host through `space.getRepo` and imported to the new host through `space.importRepo`.
+
+For spaces that the account is the authority of, the PDS also holds some configuration state that isn't necessarily published as a record in a space repo (e.g. the space's policy or member list). This is exported and imported as a [space host archive](#space-host-archive)
+
+On top of the usual account migration flow:
+
+1. Enumerate the account's spaces on the old host with `listSpaces`.
+2. For each space the account is the authority of, download its [space host archive](#space-host-archive) with `exportSpace` and upload it to the new host with `importSpace`. This must come before importing the accounts's own repo in that space.
+3. For each space repo, download it with `getRepo` and upload it with `importRepo`, then copy over the blobs it references (via `listBlobs`).
+
+Notification registrations, credential revocations, and deleted space tombstones are not carried over on migration.
+
+### Space host archive
+
+A space host archive is a [STAR file](#repo-serialization) with the `atproto-space-host` profile. It holds an authority's state for a single space.
+
+The metadata simply contains the space ref and the current `rev` (the space-level revision used by [write notifications](#write-notifications)):
+```json
+{
+  "$type": "atproto-space-host",
+  "ver": 1,
+  "space": "at://did:example:forum/space/com.atmoboards.forum/general",
+  "rev": "3mwcj3b6uak2f",
+}
+```
+
+The body has three sections, in this order:
+
+1. **Policy.** A single `policy` key, whose value is the space's policy object.
+2. **Policy state.** Any additional config relating to the policy. Keys are structured like repository keys (e.g. `{NSID}/{rkey}`) and the policy defines their values.
+3. **Writers.** One `writer/{did}` key per account in the writer set, other than the authority itself. Each value carries all required information to support `listRepos` after migration, including `rev`, `data`, and `spaceRev`. 
+
+Within each section, keys MUST be in strict lexicographic order of the key bytes, with no duplicates.
+
+```
+policy                                             → { "$type": "com.atproto.memberspace.policy", "readAccess": "members", ... }
+com.atproto.memberspace.member/did:example:alice   → { "$type": "com.atproto.memberspace.member", "read": true, "write": true }
+com.atproto.memberspace.member/did:example:bob     → { "$type": "com.atproto.memberspace.member", "read": true, "write": true }
+com.atproto.memberspace.member/did:example:carol   → { "$type": "com.atproto.memberspace.member", "read": true, "write": false }
+writer/did:example:alice                           → { "rev": "3mwdj...", "data": 0x..., "spaceRev": "3mwdk..." }
+writer/did:example:bob                             → { "rev": "3mwdj...", "data": 0x..., "spaceRev": "3mwdk..." }
+```
+
+The importing host MUST reject the archive on a parse error, a missing, duplicate, or out-of-order key, or a policy it doesn't implement (`UnsupportedPolicy`). It MUST also reject a policy state key it doesn't recognize, rather than silently dropping access state.
 
 ## Considerations
 
@@ -879,7 +947,7 @@ Finally, and relatedly, the sync APIs are not open to the public, so resource ab
 
 An account's participation in a space is tied to the same DID as its public atproto identity. The lifecycle events that already exist, migration, key rotation, deactivation, and deletion, therefore all function the same way in the context of atproto spaces.
 
-**Migration.** Moving a space repo between hosts functions the same as migrating a public repository. The main difference is that a user has many space repos rather than one, so account migration flows will need to enumerate and track all of an account's space repos (via `listSpaces`) and the blobs associated with them (via `listBlobs`). Since the repo host holds the KEM private key, the new host publishes its own `#atproto_kem` key as part of migration.
+**Migration.** Moving space repos between hosts works much like migrating a public repository, with some extra state to carry when the account is a space authority. See [Account migration](#account-migration).
 
 **Key rotation.** The account rotates its KEM key by replacing `#atproto_kem` in its DID document. Requests using the old key may fail MAC verification and need to [retry](#authenticity-headers). This does not change repo hashes or revisions.
 
