@@ -807,13 +807,13 @@ This section is non-normative. It discusses how atproto spaces interact with con
 
 ### Access in applications
 
-Applications are responsible for enforcing user access on space data that they serve. 
+Applications are responsible for enforcing user access on space data that they serve.
 
-When an application holds a user's OAuth session, it can learn that user's access from the space host directly. While a [space credential](#space-credential) lets an application sync a space, it does not tell it which of its users should see that space.
+When an application holds a user's OAuth session, it can determine if that particular user has access from the space host directly. While a [space credential](#space-credential) lets an application sync a space, it does not tell it which of its users should see that space.
 
-An application serving many users from one copy of a space makes that determination based on what the space communicates about access. Often this is communicated in the form of records published into the space by the space authority that describe the access policy. For example, membership records published in a memberspace (@TODO add link after merging https://github.com/bluesky-social/proposals/pull/129).
+An application serving many users from one copy of a space makes that determination based on what the space communicates about access. Often this is communicated in the form of records that the space authority publishes into the space to describe its access policy. For example, a memberspace may publish its membership records (@TODO add link after merging https://github.com/bluesky-social/proposals/pull/129).
 
-Access may be described through other application semantics as well. For instance a space may have the semantic that "accounts that the space authority follows" have access to the space. This may gate actual space access via a `managedspace`, but the syncing application is also responsible for understanding and enforcing this application semantic if the views that it serves.
+Access may be described through other application semantics as well. For instance, a space may grant access to accounts that the space authority follows. This requires gating actual space access via a `managedspace`, but the syncing application is also responsible for understanding and enforcing this application semantic in the views that it serves.
 
 A space that wants to be served by feeds and other third-party services that are added as "service accounts" to the space should publish its access rules as records.
 
