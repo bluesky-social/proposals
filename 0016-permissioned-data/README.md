@@ -870,7 +870,7 @@ The authority passes the space, the user, the `access` being checked (`read` or 
 
 ## Account migration
 
-Account migration for space data works similarly to migrating a public repository. The main difference is that a user has many space repos. Each space repository can be exported from the old host through `space.getRepo` and imported to the new host through `space.importRepo`. As well, the new host generates its own [KEM key](#kem-key) and publishes it in the account's DID document.
+Account migration for space data works similarly to migrating a public repository. The main difference is that a user has many space repos. Each space repository can be exported from the old host through `space.getRepo` and imported to the new host through `space.importRepo`. The new host may give an imported repo a new `rev`, while its commit `data` is unchanged. As well, the new host generates its own [KEM key](#kem-key) and publishes it in the account's DID document.
 
 For spaces that the account is the authority of, the PDS also holds some configuration state that isn't necessarily published as a record in a space repo (e.g. the space's policy or member list). This is exported and imported as a [space host archive](#space-host-archive).
 
@@ -886,13 +886,12 @@ Notification registrations, credential revocations, and deleted space tombstones
 
 A space host archive is a [STAR file](#repo-serialization) with the `atproto-space-host` profile. It holds an authority's state for a single space.
 
-The metadata simply contains the space ref and the current `rev` (the space-level revision used by [write notifications](#write-notifications)):
+The metadata simply contains the space ref:
 ```json
 {
   "$type": "atproto-space-host",
   "ver": 1,
-  "space": "at://did:example:forum/space/com.atmoboards.forum/general",
-  "rev": "3mwcj3b6uak2f"
+  "space": "at://did:example:forum/space/com.atmoboards.forum/general"
 }
 ```
 
@@ -900,7 +899,7 @@ The body has three sections, in this order:
 
 1. **Policy.** A single `policy` key, whose value is the space's policy object.
 2. **Policy state.** Any additional config relating to the policy. Keys are structured like repository keys (e.g. `{NSID}/{rkey}`) and the policy defines their values.
-3. **Writers.** One `writer/{did}` key per account in the writer set, other than the authority itself. Each value carries all required information to support `listRepos` after migration, including `rev`, `data`, and `spaceRev`.
+3. **Writers.** One `writer/{did}` key per account in the writer set. Each value carries all required information to support `listRepos` after migration, including `rev`, `data`, and `spaceRev`.
 
 Within each section, keys MUST be in strict lexicographic order of the key bytes, with no duplicates.
 
