@@ -878,7 +878,7 @@ On top of the usual account migration flow:
 
 1. Enumerate the account's spaces on the old host with `listSpaces`.
 2. For each space the account is the authority of, download its [space host archive](#space-host-archive) with `exportSpace` and upload it to the new host with `importSpace`. This must come before importing the account's own repo in that space.
-3. For each space repo, download it with `getRepo` and upload it with `importRepo`, then copy over the blobs it references (via `listBlobs`).
+3. For each space the account holds a repo in, download its repo with `getRepo` and upload it with `importRepo`, then copy over the blobs it references (via `listBlobs`).
 
 Notification registrations, credential revocations, and deleted space tombstones are not carried over on migration.
 
