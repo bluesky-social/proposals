@@ -740,7 +740,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `createSpace` | pds | procedure | OAuth (`manage`) | Create a space with a given [`policy`](#space-policy); caller becomes the authority. |
 | `updateSpace` | pds | procedure | OAuth (`manage`) | Replace a space's [`policy`](#space-policy). |
 | `deleteSpace` | pds | procedure | OAuth (`manage`) | Delete a space. |
-| `getSpace` | host | query | OAuth `read_self` / space credential | Describe a space: its identity and current [`policy`](#space-policy). |
+| `getSpace` | host | query | OAuth `read_self` | Describe a space: its identity and current [`policy`](#space-policy). |
 | `registerNotify` | host | procedure | space credential | Register a service to be notified of writes for the whole space. |
 | `unregisterNotify` | host | procedure | space credential | Withdraw a `registerNotify` registration. |
 | `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `data`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
@@ -800,6 +800,21 @@ Each baseline policy carries an `appAccess` field that decides per-app authoriza
 
 A user must be authorized by the policy **and** their app by `appAccess` for a credential to be minted. `appAccess` does not apply to writes because write notifications authenticate the writer's repo host rather than the client application that originated the write.
 
+### Publishing to readers
+
+By default, a space's policy and member list are visible only to the authority, through `getSpace` and `listMembers`. However, sometimes this configuration should be visible to readers or applications as well.
+
+For this, `memberspace` and `managedspace` carry a `publishPolicy` flag, and `memberspace` also carries `publishMembers`. When a flag is set, the authority's PDS publishes that state as records in the authority's own repo in the space, where they sync to readers like any other record.
+
+| Flag | Collection | Record key | Value |
+|---|---|---|---|
+| `publishPolicy` | `com.atproto.space.policy` | `self` | `policy`: the current policy object |
+| `publishMembers` | `com.atproto.memberspace.member` | the member's DID | `read`, `write` |
+
+The config remains the source of truth for access, and records are a copy. It is the PDS's responsibility to keep the two in sync. For instance, when a client calls `putMember` on a space with a published member list, the PDS should both update the configuration and publish a record in the space. The PDS should reject direct writes of these records through repo CRUD methods. Since any member can write records of these types to their own repo, readers should only treat them as authoritative in the authority's repo.
+
+Note that even if a member list isn't published, members that have written to the space can still be enumerated through the [writer set](#the-sync-boundary-writer-set).
+
 ### `personalspace`
 
 `com.atproto.personalspace.policy` is for data that only its owner should see, such as bookmarks, mutes, or drafts. Only the space authority's own account is authorized to read, and the authority tracks no other writers.
@@ -819,6 +834,8 @@ A user must be authorized by the policy **and** their app by `appAccess` for a c
 | `readAccess` | `public` \| `members` (default) | Who the authority authorizes to read. |
 | `writeAccess` | `public` \| `members` (default) | Whose writes the authority tracks and forwards notifications for. |
 | `appAccess` | open union (`#open` \| `#allowList`) | How the authority decides whether to authorize an _app_. |
+| `publishPolicy` | boolean (default false) | [Publish](#publishing-to-readers) the policy to readers. |
+| `publishMembers` | boolean (default false) | [Publish](#publishing-to-readers) the member list to readers. |
 
 `public` authorizes any user. `members` authorizes a user whose member-list entry has the corresponding `read` or `write` boolean set to true.
 
@@ -840,6 +857,7 @@ Each member-list entry carries required `read` and `write` booleans, and `putMem
 |---|---|---|
 | `managingApp` | service identifier (DID + fragment) | Required. The service the authority asks whether to authorize a user. |
 | `appAccess` | open union (`#open` \| `#allowList`) | How the authority decides whether to authorize an _app_. |
+| `publishPolicy` | boolean (default false) | [Publish](#publishing-to-readers) the policy to readers. |
 
 | Method | Type | Auth | Description |
 |---|---|---|---|
