@@ -778,7 +778,7 @@ A PDS MUST support the three [baseline policies](#baseline-policies), so that a 
 
 Changing the `$type` of a space's `policy` through `updateSpace` migrates the space from one policy to another. For example, a space created under `personalspace` for data such as bookmarks could later be opened up by migrating it to `memberspace` and adding members.
 
-When a space is migrated, state held by the previous policy (such as a `memberspace` member list) should be discarded. Migrating back to the previous policy does not restore it. Similarly, the space's writer set should be re-evaluated and any entries that do not match the new policy should be dropped.
+When a space is migrated, state held by the previous policy (such as a `memberspace` member list) should be discarded. Migrating back to the previous policy does not restore it. The space's writer set may be re-evaluated, but applications should not expect this, and applications remain responsible for [removing any writers](@TODO add link after https://github.com/bluesky-social/proposals/pull/128) from the writer set.
 
 ## Baseline policies
 
