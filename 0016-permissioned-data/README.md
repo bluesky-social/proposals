@@ -355,7 +355,13 @@ Each space repo is summarized by a **commit**, which lets a syncer check whether
 
 A user's space repo is automatically created when they first write a record to that space. No separate repo-creation operation is needed. When the space authority is another DID, the user's PDS does not need to check whether the space exists before accepting the write. If the user is also the space authority (the space authority DID is the user's own DID), the space must already exist. 
 
-An empty space repo and a nonexistent space repo are equivalent. To delete a space repo, the user deletes all records within it. There is no separate repo deletion operation. Writing a record to that space again automatically creates the repo under the same rules above. Deleting a repo does not delete the space itself (see [Space deletion](#space-deletion)).
+There is no space repo deletion operation. Instead, an empty space repo and a nonexistent one are treated as equivalent. Space repos are cleared rather than deleted because the repo needs to stay around in the writer set, and the host needs to answering sync requests with a valid commit showing that the records are gone.
+
+A space repo can be cleared all at once with `com.atproto.space.clearRecords`. The host deletes every record and advances the repo to a new `rev` with the empty repo's digest. The empty LtHash state is all zeroes, so an empty repo's `data` is always `e5a00aa9991ac8a5ee3109844d84a55583bd20572ad3ffcd42792f3c36b183ad`. The host then simply clears the operation log and sends a [write notification](#write-notifications) to the space host.
+
+Writing a record to the space again recreates the repo under the same rules above. Deleting a repo does not delete the space itself (see [Space deletion](#space-deletion)).
+
+A repo host MAY garbage collect an empty space repo, discarding its commit and any other remaining state. This may happen as routine cleanup or during [account migration](#account-lifecycle), where empty repos need not be carried over to the new host. The host SHOULD wait a while before collecting a cleared repo, to give the clear time to propagate to the space host and to syncers. Once collected, the host responds to requests for the repo as if it never existed.
 
 ### Commit digest
 
@@ -736,6 +742,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `putRecord` | pds | procedure | OAuth | Create or update a record. |
 | `deleteRecord` | pds | procedure | OAuth | Delete a record. |
 | `applyWrites` | pds | procedure | OAuth | Apply a batch of creates, updates, and deletes to one repo atomically. |
+| `clearRecords` | pds | procedure | OAuth | Delete every record in the caller's repo in the specified space. |
 | `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in. |
 | `registerNotify` | host | procedure | space credential | Register a service to be notified of writes for the whole space. |
 | `unregisterNotify` | host | procedure | space credential | Withdraw a `registerNotify` registration. |
