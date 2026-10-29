@@ -355,7 +355,13 @@ Each space repo is summarized by a **commit**, which lets a syncer check whether
 
 A user's space repo is automatically created when they first write a record to that space. No separate repo-creation operation is needed. When the space authority is another DID, the user's PDS does not need to check whether the space exists before accepting the write. If the user is also the space authority (the space authority DID is the user's own DID), the space must already exist. 
 
-An empty space repo and a nonexistent space repo are equivalent. To delete a space repo, the user deletes all records within it. There is no separate repo deletion operation. Writing a record to that space again automatically creates the repo under the same rules above. Deleting a repo does not delete the space itself (see [Space deletion](#space-deletion)).
+There is no space repo deletion operation. Instead, an empty space repo and a nonexistent one are treated as equivalent. Space repos are cleared rather than deleted because the repo needs to stay around in the writer set, and the host needs to answering sync requests with a valid commit showing that the records are gone.
+
+A space repo can be cleared all at once with `com.atproto.space.clearRecords`. The host deletes every record and advances the repo to a new `rev` with the empty repo's digest. The empty LtHash state is all zeroes, so an empty repo's `data` is always `e5a00aa9991ac8a5ee3109844d84a55583bd20572ad3ffcd42792f3c36b183ad`. The host then simply clears the operation log and sends a [write notification](#write-notifications) to the space host.
+
+Writing a record to the space again recreates the repo under the same rules above. Deleting a repo does not delete the space itself (see [Space deletion](#space-deletion)).
+
+A repo host MAY garbage collect an empty space repo, discarding its commit and any other remaining state. This may happen as routine cleanup or during [account migration](#account-lifecycle), where empty repos need not be carried over to the new host. The host SHOULD wait a while before collecting a cleared repo, to give the clear time to propagate to the space host and to syncers. Once collected, the host responds to requests for the repo as if it never existed.
 
 ### Commit digest
 
@@ -586,6 +592,8 @@ The writer set is a simple fetch and carries no commit or history. It enumerates
 
 The writer set is what the authority *claims*, and is not itself authoritative for any individual repo. It is current as far as the authority's notifications have kept it. A listed account's repo host is the source of truth for whether that repo actually holds data. A syncer treats the writer set as the starting point for discovery and confirms each repo by syncing it directly from its host.
 
+The authority can drop an account from the writer set if that account loses write access. This can be explicitly requested with `com.atproto.space.removeWriter`. A removed account can be re-added to the writer set later if they make an authorized write to the space.
+
 ## Space deletion
 
 A space may be deleted by its authority. The authority stops issuing credentials for the space and deletes all records in its own repo in the space.
@@ -656,7 +664,7 @@ This default follows the same dynamic-update semantics as a [permission set](htt
 
 **Space management operations** are governed by `manage`, which takes the same `create`/`update`/`delete` verbs applied to the space itself rather than to its records. `manage` ignores `collection`. It is omitted by default, so an ordinary record-access grant confers no administrative capability.
 
-The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.space.createSpace`, `updateSpace`, `deleteSpace`) as well as any administrative methods the space's [`policy`](#space-policy) defines. The protocol does not enumerate the latter, because they are policy-defined. For example, on a `memberspace` space, `manage=update` authorizes `updateSpace` as well as `com.atproto.memberspace.putMember` and `removeMember`.
+The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.space.createSpace`, `updateSpace`, `deleteSpace`) as well as any administrative methods the space's [`policy`](#space-policy) defines. The protocol does not enumerate the latter, because they are policy-defined. For example, on a `memberspace` space, `manage=update` authorizes `updateSpace` as well as `com.atproto.memberspace.putMember` and `removeMember`. `manage=update` also authorizes `com.atproto.space.removeWriter` under every policy.
 
 `manage=create` authorizes creating a space (via `com.atproto.space.createSpace`) of the given `spaceType` under the given authority. It concerns a space that does not yet exist, so scoping it to a concrete `skey` is unusual. It is typically granted with `skey=*` ("this app may create spaces of this type").
 
@@ -724,6 +732,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 |---|---|---|---|---|
 | `getSpaceCredential` | host | procedure | none (delegation token and client attestation included in request body) | Request a space credential. |
 | `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `data`. |
+| `removeWriter` | host | procedure | OAuth (`manage`) | Remove an account from a space's [writer set](#the-sync-boundary-writer-set). |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
 | `getBlob` | repo | query | OAuth / space credential | Fetch a blob by CID. |
@@ -736,6 +745,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `putRecord` | pds | procedure | OAuth | Create or update a record. |
 | `deleteRecord` | pds | procedure | OAuth | Delete a record. |
 | `applyWrites` | pds | procedure | OAuth | Apply a batch of creates, updates, and deletes to one repo atomically. |
+| `clearRecords` | pds | procedure | OAuth | Delete every record in the caller's repo in the specified space. |
 | `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in. |
 | `createSpace` | pds | procedure | OAuth (`manage`) | Create a space with a given [`policy`](#space-policy); caller becomes the authority. |
 | `updateSpace` | pds | procedure | OAuth (`manage`) | Replace a space's [`policy`](#space-policy). |
@@ -775,7 +785,7 @@ A PDS MUST support the three [baseline policies](#baseline-policies), so that a 
 
 Changing the `$type` of a space's `policy` through `updateSpace` migrates the space from one policy to another. For example, a space created under `personalspace` for data such as bookmarks could later be opened up by migrating it to `memberspace` and adding members.
 
-When a space is migrated, state held by the previous policy (such as a `memberspace` member list) should be discarded. Migrating back to the previous policy does not restore it. The space's writer set may be re-evaluated, but applications should not expect this, and applications remain responsible for [removing any writers](@TODO add link after https://github.com/bluesky-social/proposals/pull/128) from the writer set.
+When a space is migrated, state held by the previous policy (such as a `memberspace` member list) should be discarded. Migrating back to the previous policy does not restore it. The space's writer set may be re-evaluated, but applications should not expect this, and applications remain responsible for [removing any writers](#the-sync-boundary-writer-set) from the writer set.
 
 ## Baseline policies
 
@@ -851,6 +861,8 @@ The member list is managed through `memberspace`'s own methods:
 
 Each member-list entry carries required `read` and `write` booleans, and `putMember` replaces both together. The member list is not part of the `policy` object. It persists across configuration changes and is discarded on [migration](#policy-migration) to a different policy.
 
+When `removeMember` removes a member, or `putMember` revokes a member's write access, the authority SHOULD also remove that account from the writer set. Writers tracked under `publicWrite` are not on the member list, but can be explicitly removed with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set). While `publicWrite` is set, a removed writer is tracked again as soon as it writes.
+
 ### `managedspace`
 
 `com.atproto.managedspace.policy` defers each user access decision to an external **managing app**. This enables dynamic policies (e.g. follower-gating or paid subscriptions) without the PDS maintaining a materialized member list.
@@ -866,6 +878,8 @@ Each member-list entry carries required `read` and `write` booleans, and `putMem
 | `checkUserAccess` | query | service auth (from the space authority) | Served by the `managingApp` (not the PDS). Asks whether to authorize a user to read or write. |
 
 The authority passes the space, the user, the `access` being checked (`read` or `write`), and for reads, the attested `client_id` if one was presented. Write checks carry no client, since `notifyWrite` does not identify the originating app. Because reads and writes are checked separately, the app can express mixed arrangements, such as a paid newsletter that subscribers may read but only the authority writes to.
+
+Writers approved by the managing app can be explicitly removed from the writer set with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set).
 
 ## Considerations
 
