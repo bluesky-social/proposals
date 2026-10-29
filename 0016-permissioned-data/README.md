@@ -736,14 +736,14 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `putRecord` | pds | procedure | OAuth | Create or update a record. |
 | `deleteRecord` | pds | procedure | OAuth | Delete a record. |
 | `applyWrites` | pds | procedure | OAuth | Apply a batch of creates, updates, and deletes to one repo atomically. |
-| `importRepo` | pds | procedure | OAuth (`account:repo?action=manage`) | Import a space repo from a [STAR archive](#repo-serialization) during [account migration](#account-migration). |
+| `importRepo` | pds | procedure | OAuth (`create` on every collection in the archive) | Import a space repo from a [STAR archive](#repo-serialization) during [account migration](#account-migration). |
 | `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in or is the authority of. |
 | `createSpace` | pds | procedure | OAuth (`manage`) | Create a space with a given [`policy`](#space-policy); caller becomes the authority. |
 | `updateSpace` | pds | procedure | OAuth (`manage`) | Replace a space's [`policy`](#space-policy). |
 | `deleteSpace` | pds | procedure | OAuth (`manage`) | Delete a space. |
 | `getSpace` | host | query | OAuth `read_self` | Describe a space: its identity and current [`policy`](#space-policy). |
-| `exportSpace` | host | query | OAuth `read_self` | Download a space's host-side state as a [space host archive](#space-host-archive). |
-| `importSpace` | pds | procedure | OAuth (`account:repo?action=manage`) | Import a space from a [space host archive](#space-host-archive) during [account migration](#account-migration). |
+| `exportSpaceMeta` | host | query | OAuth `read_self` | Download a space's host-side state as a [space meta archive](#space-meta-archive). |
+| `importSpaceMeta` | pds | procedure | OAuth (`manage=create` and `manage=update`) | Import a space from a [space meta archive](#space-meta-archive) during [account migration](#account-migration). |
 | `registerNotify` | host | procedure | space credential | Register a service to be notified of writes for the whole space. |
 | `unregisterNotify` | host | procedure | space credential | Withdraw a `registerNotify` registration. |
 | `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `data`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
@@ -872,24 +872,26 @@ The authority passes the space, the user, the `access` being checked (`read` or 
 
 Account migration for space data works similarly to migrating a public repository. The main difference is that a user has many space repos. Each space repository can be exported from the old host through `space.getRepo` and imported to the new host through `space.importRepo`. The new host may give an imported repo a new `rev`, while its commit `data` is unchanged. As well, the new host generates its own [KEM key](#kem-key) and publishes it in the account's DID document.
 
-For spaces that the account is the authority of, the PDS also holds some configuration state that isn't necessarily published as a record in a space repo (e.g. the space's policy or member list). This is exported and imported as a [space host archive](#space-host-archive).
+For spaces that the account is the authority of, the PDS also holds some configuration state that isn't necessarily published as a record in a space repo (e.g. the space's policy or member list). This is exported and imported as a [space meta archive](#space-meta-archive).
 
 On top of the usual account migration flow:
 
 1. Enumerate the account's spaces on the old host with `listSpaces`.
-2. For each space the account is the authority of, download its [space host archive](#space-host-archive) with `exportSpace` and upload it to the new host with `importSpace`. This must come before importing the account's own repo in that space.
+2. For each space the account is the authority of, download its [space meta archive](#space-meta-archive) with `exportSpaceMeta` and upload it to the new host with `importSpaceMeta`. This must come before importing the account's own repo in that space.
 3. For each space the account holds a repo in, download its repo with `getRepo` and upload it with `importRepo`, then copy over the blobs it references (via `listBlobs`).
+
+Each import requires a `space:` scope that covers the writes it makes. Migrating all of an account's spaces therefore takes very broad scopes.
 
 Notification registrations, credential revocations, and deleted space tombstones are not carried over on migration.
 
-### Space host archive
+### Space meta archive
 
-A space host archive is a [STAR file](#repo-serialization) with the `atproto-space-host` profile. It holds an authority's state for a single space.
+A space meta archive is a [STAR file](#repo-serialization) with the `atproto-space-meta` profile. It holds an authority's state for a single space.
 
 The metadata simply contains the space ref:
 ```json
 {
-  "$type": "atproto-space-host",
+  "$type": "atproto-space-meta",
   "ver": 1,
   "space": "at://did:example:forum/space/com.atmoboards.forum/general"
 }
