@@ -154,7 +154,7 @@ The authority can base its decision on two signed assertions:
 - **which user** is being acted for: established by a **delegation token** minted by the user's PDS
 - **which application** is acting: established by a **client attestation** signed by the application itself
 
-A space authority may require either assertion, both, or neither. The authority MUST NOT reject a request solely because it includes a valid assertion that the space does not require. Spaces that require neither offer public access, though syncing applications must still obtain a space credential.
+A space authority may require either assertion, both, or neither. The authority MUST NOT reject a request solely because it includes a valid assertion that the space does not require. Spaces that require neither offer public access (e.g. a [`memberspace`](#memberspace) with `publicRead`), though syncing applications must still obtain a space credential.
 
 An application requests a credential by presenting any required assertions to the space authority. The authority decides whether to issue the credential. The protocol does not define the decision procedure; it is determined by the space's [`policy`](#space-policy) (for the policies every PDS supports, see [Baseline policies](#baseline-policies)).
 
@@ -831,13 +831,15 @@ Note that even if a member list isn't published, members that have written to th
 
 | Field | Values | Description |
 |---|---|---|
-| `publicRead` | boolean (default false) | Authorize any user to read, rather than only members. |
+| `publicRead` | boolean (default false) | Authorize anyone to read, rather than only members. No [delegation token](#delegation-token) is required. |
 | `publicWrite` | boolean (default false) | Track and forward notifications for any user's writes, rather than only members'. |
 | `allowedApps` | array of OAuth client IDs (optional) | The apps the authority authorizes. Any app when omitted. See [App access](#app-access). |
 | `publishPolicy` | boolean (default false) | [Publish](#publishing-to-readers) the policy to readers. |
 | `publishMembers` | boolean (default false) | [Publish](#publishing-to-readers) the member list to readers. |
 
-When `publicRead` or `publicWrite` is set, the authority authorizes any user for that access. Otherwise, it authorizes a user whose member-list entry has the corresponding `read` or `write` boolean set to true.
+When `publicRead` is set, the authority does not require a delegation token to read. It issues a space credential to any requester, so an application such as a syncer can read the space without acting on behalf of a user. `allowedApps` still applies, so if it is set, a client attestation from a listed app is required. When `publicWrite` is set, the authority tracks and forwards notifications for any user's writes.
+
+Otherwise, the authority authorizes a user whose member-list entry has the corresponding `read` or `write` boolean set to true. For reads, the user is identified by a delegation token.
 
 The member list is managed through `memberspace`'s own methods:
 
