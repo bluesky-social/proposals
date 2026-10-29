@@ -154,7 +154,7 @@ The authority can base its decision on two signed assertions:
 - **which user** is being acted for: established by a **delegation token** minted by the user's PDS
 - **which application** is acting: established by a **client attestation** signed by the application itself
 
-A space authority may require either assertion, both, or neither. The authority MUST NOT reject a request solely because it includes a valid assertion that the space does not require. Spaces that require neither offer public access (e.g. a [`memberspace`](#memberspace) with `publicRead`), though syncing applications must still obtain a space credential.
+A space authority may require either assertion, both, or neither. The authority MUST NOT reject a request solely because it includes a valid assertion that the space does not require. Spaces may offer public access by requiring neither (e.g. a [`memberspace`](#memberspace) with `publicRead`), though syncing applications must still obtain a space credential.
 
 An application requests a credential by presenting any required assertions to the space authority. The authority decides whether to issue the credential. The protocol does not define the decision procedure; it is determined by the space's [`policy`](#space-policy) (for the policies every PDS supports, see [Baseline policies](#baseline-policies)).
 
@@ -664,9 +664,9 @@ This default follows the same dynamic-update semantics as a [permission set](htt
 
 **Space management operations** are governed by `manage`, which takes the same `create`/`update`/`delete` verbs applied to the space itself rather than to its records. `manage` ignores `collection`. It is omitted by default, so an ordinary record-access grant confers no administrative capability.
 
-The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.space.createSpace`, `updateSpace`, `deleteSpace`) as well as any administrative methods the space's [`policy`](#space-policy) defines. The protocol does not enumerate the latter, because they are policy-defined. For example, on a `memberspace` space, `manage=update` authorizes `updateSpace` as well as `com.atproto.memberspace.putMember` and `removeMember`. `manage=update` also authorizes `com.atproto.space.removeWriter` under every policy.
+The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.space.createSpace`, `updateSpace`, `deleteSpace`) as well as any administrative methods the space's [`policy`](#space-policy) defines. For example, on a `memberspace` space, `manage=update` authorizes `updateSpace` as well as `com.atproto.memberspace.putMember` and `removeMember`. `manage=update` also authorizes `com.atproto.space.removeWriter` under every policy.
 
-`manage=create` authorizes creating a space (via `com.atproto.space.createSpace`) of the given `spaceType` under the given authority. It concerns a space that does not yet exist, so scoping it to a concrete `skey` is unusual. It is typically granted with `skey=*` ("this app may create spaces of this type").
+`manage=create` authorizes creating a space of the given `spaceType` under the given authority. It concerns a space that does not yet exist, so scoping it to a concrete `skey` is unusual. It is typically granted with `skey=*` ("this app may create spaces of this type").
 
 ### Examples
 
@@ -746,10 +746,18 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `deleteRecord` | pds | procedure | OAuth | Delete a record. |
 | `applyWrites` | pds | procedure | OAuth | Apply a batch of creates, updates, and deletes to one repo atomically. |
 | `clearRecords` | pds | procedure | OAuth | Delete every record in the caller's repo in the specified space. |
+<<<<<<< Updated upstream
 | `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in. |
 | `createSpace` | pds | procedure | OAuth (`manage`) | Create a space with a given [`policy`](#space-policy); caller becomes the authority. |
 | `updateSpace` | pds | procedure | OAuth (`manage`) | Replace a space's [`policy`](#space-policy). |
 | `deleteSpace` | pds | procedure | OAuth (`manage`) | Delete a space. |
+=======
+| `importRepo` | pds | procedure | OAuth (`create` on every collection in the archive) | Import a space repo from a [STAR archive](#repo-serialization) during [account migration](#account-migration). |
+| `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in or is the authority of. |
+| `createSpace` | pds | procedure | OAuth (`manage=create`) | Create a space with a given [`policy`](#space-policy); caller becomes the authority. |
+| `updateSpace` | pds | procedure | OAuth (`manage=update`) | Replace a space's [`policy`](#space-policy). |
+| `deleteSpace` | pds | procedure | OAuth (`manage=delete`) | Delete a space. |
+>>>>>>> Stashed changes
 | `getSpace` | host | query | OAuth `read_self` | Describe a space: its identity and current [`policy`](#space-policy). |
 | `registerNotify` | host | procedure | space credential | Register a service to be notified of writes for the whole space. |
 | `unregisterNotify` | host | procedure | space credential | Withdraw a `registerNotify` registration. |
@@ -761,7 +769,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 
 The protocol does not specify how a space is configured, how an authority decides who may read it, or which writers it tracks and forwards notifications for. Those are the concern of the space's **policy**.
 
-A space's `policy` is an object that both selects the implementation governing the space and carries that implementation's configuration. It is a Lexicon open union discriminated by `$type`, so a new policy can be introduced without any change to this specification. A policy defines its own access rules, configuration, and any additional XRPC methods. By convention, a policy's namespace also houses its methods (e.g. `com.atproto.memberspace.*`).
+Each space policy defines a `policy` object that is used to configure a space under that policy.
 
 ```json
 {
@@ -770,22 +778,15 @@ A space's `policy` is an object that both selects the implementation governing t
   "publicWrite": false
 }
 ```
+A space is created, updated, and deleted through a small set of policy-agnostic methods under `com.atproto.space`. Both `createSpace` and `updateSpace` take the full `policy` object, including its configuration. `updateSpace` replaces the `policy` object wholesale. If the new policy has the same `$type` as the current one, this is a configuration change. If the host does not implement the requested policy then it MUST fail with an `UnsupportedPolicy` error on create or update. 
 
-A space is created, updated, and deleted through a small set of policy-agnostic methods under `com.atproto.space`.
+Generally, if a space migrates between two policies of different `$type`, state from the previous policy (such as a `memberspace` member list) should be discarded, and migrating back to the previous policy should not restore it. The space's writer set may be re-evaluated, but applications should not expect this, and applications remain responsible for [removing any writers](#the-sync-boundary-writer-set) from the writer set.
 
-`createSpace` takes the full `policy` object, including its configuration. `updateSpace` replaces the `policy` object wholesale. If the new policy has the same `$type` as the current one, this is a configuration change. If the `$type` differs, it is a [policy migration](#policy-migration). Both methods fail with an `UnsupportedPolicy` error if the host does not implement the requested policy or a value within it, as a host will not store a policy it cannot enforce.
+Each policy defines its own access rules, configuration, and any additional XRPC methods. By convention, these methods live in the same namespace as the policy (e.g. `com.atproto.memberspace.*`).
 
-Under every policy, the space authority's own account is always authorized as a user, for both reading and writing, without appearing on a member list or being approved by a managing app. Any app it uses must still be authorized by the policy.
-
-`getSpace` is served by the space host for every space it hosts, regardless of policy, so that an application can discover which policy (and therefore which management methods) governs a space.
+Under every policy, the space authority's own account is always authorized as a user, for both reading and writing, without appearing on a member list or being approved by a managing app.
 
 A PDS MUST support the three [baseline policies](#baseline-policies), so that a management surface is available on every account. It MAY support additional policies.
-
-### Policy migration
-
-Changing the `$type` of a space's `policy` through `updateSpace` migrates the space from one policy to another. For example, a space created under `personalspace` for data such as bookmarks could later be opened up by migrating it to `memberspace` and adding members.
-
-When a space is migrated, state held by the previous policy (such as a `memberspace` member list) should be discarded. Migrating back to the previous policy does not restore it. The space's writer set may be re-evaluated, but applications should not expect this, and applications remain responsible for [removing any writers](#the-sync-boundary-writer-set) from the writer set.
 
 ## Baseline policies
 
@@ -806,7 +807,7 @@ In each baseline policy, reading and writing are independent permissions. Read a
 Each baseline policy carries an optional `allowedApps` field, a list of OAuth client IDs, that decides per-app authorization:
 
 - When omitted (the default), any application may access the space. No [client attestation](#client-attestation) is required, so public clients work.
-- When set, only the listed apps may access the space. The authority evaluates the list against the **attested** `client_id` (the `iss` of the verified client attestation), so it is enforceable rather than advisory.
+- When set, only the listed apps may access the space. The authority evaluates the list against the **attested** `client_id` (the `iss` of the verified client attestation).
 
 A user must be authorized by the policy **and** their app by `allowedApps` for a credential to be minted. `allowedApps` does not apply to writes because write notifications authenticate the writer's repo host rather than the client application that originated the write.
 
@@ -821,7 +822,7 @@ For this, `memberspace` and `managedspace` carry a `publishPolicy` flag, and `me
 | `publishPolicy` | `com.atproto.space.policy` | `self` | `policy`: the current policy object |
 | `publishMembers` | `com.atproto.memberspace.member` | the member's DID | `read`, `write` |
 
-The config remains the source of truth for access, and records are a copy. It is the PDS's responsibility to keep the two in sync. For instance, when a client calls `putMember` on a space with a published member list, the PDS should both update the configuration and publish a record in the space. The PDS should reject direct writes of these records through repo CRUD methods. Since any member can write records of these types to their own repo, readers should only treat them as authoritative in the authority's repo.
+The config remains the source of truth for access, and records are a copy. It is the PDS's responsibility to keep the two in sync. For instance, when a client calls `putMember` on a space with a published member list, the PDS should both update the configuration and publish a record in the space. The PDS should reject direct writes of these records through repo CRUD methods. Since any member is technically capable of writing records of these types to their own repo, readers should only treat them as authoritative in the authority's repo.
 
 Note that even if a member list isn't published, members that have written to the space can still be enumerated through the [writer set](#the-sync-boundary-writer-set).
 
@@ -829,11 +830,7 @@ Note that even if a member list isn't published, members that have written to th
 
 `com.atproto.personalspace.policy` is for data that only its owner should see, such as bookmarks, mutes, or drafts. Only the space authority's own account is authorized to read, and the authority tracks no other writers.
 
-| Field | Values | Description |
-|---|---|---|
-| `allowedApps` | array of OAuth client IDs (optional) | The apps the authority authorizes. Any app when omitted. See [App access](#app-access). |
-
-`personalspace` defines no methods of its own.
+`personalspace` has no configuration fields and defines no methods of its own.
 
 ### `memberspace`
 
