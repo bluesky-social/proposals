@@ -756,8 +756,8 @@ A space's `policy` is an object that both selects the implementation governing t
 ```json
 {
   "$type": "com.atproto.memberspace.policy",
-  "readAccess": "members",
-  "writeAccess": "members"
+  "publicRead": false,
+  "publicWrite": false
 }
 ```
 
@@ -793,12 +793,12 @@ In each baseline policy, reading and writing are independent permissions. Read a
 
 ### App access
 
-Each baseline policy carries an `appAccess` field that decides per-app authorization. `appAccess` is an open union defined once in `com.atproto.space.defs` and shared by all three policies. It has two current variants:
+Each baseline policy carries an optional `allowedApps` field, a list of OAuth client IDs, that decides per-app authorization:
 
-- `#open` (default): any application may access the space. No [client attestation](#client-attestation) is required, so public clients work.
-- `#allowList`: only the apps named in `allowed` may access the space. The authority evaluates the list against the **attested** `client_id` (the `iss` of the verified client attestation), so it is enforceable rather than advisory.
+- When omitted (the default), any application may access the space. No [client attestation](#client-attestation) is required, so public clients work.
+- When set, only the listed apps may access the space. The authority evaluates the list against the **attested** `client_id` (the `iss` of the verified client attestation), so it is enforceable rather than advisory.
 
-A user must be authorized by the policy **and** their app by `appAccess` for a credential to be minted. `appAccess` does not apply to writes because write notifications authenticate the writer's repo host rather than the client application that originated the write.
+A user must be authorized by the policy **and** their app by `allowedApps` for a credential to be minted. `allowedApps` does not apply to writes because write notifications authenticate the writer's repo host rather than the client application that originated the write.
 
 ### Publishing to readers
 
@@ -821,7 +821,7 @@ Note that even if a member list isn't published, members that have written to th
 
 | Field | Values | Description |
 |---|---|---|
-| `appAccess` | open union (`#open` \| `#allowList`) | How the authority decides whether to authorize an _app_. |
+| `allowedApps` | array of OAuth client IDs (optional) | The apps the authority authorizes. Any app when omitted. See [App access](#app-access). |
 
 `personalspace` defines no methods of its own.
 
@@ -831,13 +831,13 @@ Note that even if a member list isn't published, members that have written to th
 
 | Field | Values | Description |
 |---|---|---|
-| `readAccess` | `public` \| `members` (default) | Who the authority authorizes to read. |
-| `writeAccess` | `public` \| `members` (default) | Whose writes the authority tracks and forwards notifications for. |
-| `appAccess` | open union (`#open` \| `#allowList`) | How the authority decides whether to authorize an _app_. |
+| `publicRead` | boolean (default false) | Authorize any user to read, rather than only members. |
+| `publicWrite` | boolean (default false) | Track and forward notifications for any user's writes, rather than only members'. |
+| `allowedApps` | array of OAuth client IDs (optional) | The apps the authority authorizes. Any app when omitted. See [App access](#app-access). |
 | `publishPolicy` | boolean (default false) | [Publish](#publishing-to-readers) the policy to readers. |
 | `publishMembers` | boolean (default false) | [Publish](#publishing-to-readers) the member list to readers. |
 
-`public` authorizes any user. `members` authorizes a user whose member-list entry has the corresponding `read` or `write` boolean set to true.
+When `publicRead` or `publicWrite` is set, the authority authorizes any user for that access. Otherwise, it authorizes a user whose member-list entry has the corresponding `read` or `write` boolean set to true.
 
 The member list is managed through `memberspace`'s own methods:
 
@@ -856,7 +856,7 @@ Each member-list entry carries required `read` and `write` booleans, and `putMem
 | Field | Values | Description |
 |---|---|---|
 | `managingApp` | service identifier (DID + fragment) | Required. The service the authority asks whether to authorize a user. |
-| `appAccess` | open union (`#open` \| `#allowList`) | How the authority decides whether to authorize an _app_. |
+| `allowedApps` | array of OAuth client IDs (optional) | The apps the authority authorizes. Any app when omitted. See [App access](#app-access). |
 | `publishPolicy` | boolean (default false) | [Publish](#publishing-to-readers) the policy to readers. |
 
 | Method | Type | Auth | Description |
