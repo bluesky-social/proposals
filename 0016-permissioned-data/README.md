@@ -809,7 +809,7 @@ For this, `memberspace` and `managedspace` carry a `publishPolicy` flag, and `me
 | `publishPolicy` | `com.atproto.space.policy` | `self` | `policy`: the current policy object |
 | `publishMembers` | `com.atproto.memberspace.member` | the member's DID | `read`, `write` |
 
-The config remains the source of truth for access, and records are a copy. It is the PDS's responsibility to keep the two in sync. For instance, when a client calls `putMember` on a space with a published member list, the PDS should both update the configuration and publish a record in the space. The PDS should reject direct writes of these records through repo CRUD methods. Since any member is technically capable of writing records of these types to their own repo, readers should only treat them as authoritative in the authority's repo.
+The config remains the source of truth for access, and records are a copy. It is the PDS's responsibility to keep the two in sync. For instance, when a client calls `putMember` on a space with a published member list, the PDS should both update the configuration and publish a record in the space. The PDS should reject direct writes of these records through repo CRUD methods, and [`clearRecords`](#repo-lifecycle) leaves them in place in the authority's repo. Since any member is technically capable of writing records of these types to their own repo, readers should only treat them as authoritative in the authority's repo.
 
 Note that even if a member list isn't published, members that have written to the space can still be enumerated through the [writer set](#the-sync-boundary-writer-set).
 
@@ -878,7 +878,7 @@ On top of the usual account migration flow:
 2. For each space the account is the authority of, download its [space meta archive](#space-meta-archive) with `exportSpaceMeta` and upload it to the new host with `importSpaceMeta`. This must come before importing the account's own repo in that space.
 3. For each space the account holds a repo in, download its repo with `getRepo` and upload it with `importRepo`, then copy over the blobs it references (via `listBlobs`).
 
-Each import requires a `space:` scope that covers the writes it makes. Migrating all of an account's spaces therefore takes very broad scopes.
+Each import requires a `space:` scope that covers the writes it makes. An import that includes a record the scope does not cover is rejected as a whole, not imported in part. Migrating all of an account's spaces therefore takes very broad scopes.
 
 Notification registrations, credential revocations, and deleted space tombstones are not carried over on migration.
 
@@ -906,7 +906,7 @@ The body has three sections, in this order:
 Within each section, keys MUST be in strict lexicographic order of the key bytes, with no duplicates.
 
 ```
-policy                                             → { "$type": "com.atproto.memberspace.policy", "readAccess": "members", ... }
+policy                                             → { "$type": "com.atproto.memberspace.policy", "publicRead": false, ... }
 com.atproto.memberspace.member/did:example:alice   → { "$type": "com.atproto.memberspace.member", "read": true, "write": true }
 com.atproto.memberspace.member/did:example:bob     → { "$type": "com.atproto.memberspace.member", "read": true, "write": true }
 com.atproto.memberspace.member/did:example:carol   → { "$type": "com.atproto.memberspace.member", "read": true, "write": false }
