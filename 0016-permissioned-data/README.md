@@ -732,7 +732,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 |---|---|---|---|---|
 | `getSpaceCredential` | host | procedure | none (delegation token and client attestation included in request body) | Request a space credential. |
 | `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `data`. |
-| `removeWriter` | host | procedure | OAuth (`manage`) | Remove an account from a space's [writer set](#the-sync-boundary-writer-set). |
+| `removeWriter` | host | procedure | OAuth (`manage=update`) | Remove an account from a space's [writer set](#the-sync-boundary-writer-set). |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
 | `getBlob` | repo | query | OAuth / space credential | Fetch a blob by CID. |
@@ -746,18 +746,10 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `deleteRecord` | pds | procedure | OAuth | Delete a record. |
 | `applyWrites` | pds | procedure | OAuth | Apply a batch of creates, updates, and deletes to one repo atomically. |
 | `clearRecords` | pds | procedure | OAuth | Delete every record in the caller's repo in the specified space. |
-<<<<<<< Updated upstream
 | `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in. |
-| `createSpace` | pds | procedure | OAuth (`manage`) | Create a space with a given [`policy`](#space-policy); caller becomes the authority. |
-| `updateSpace` | pds | procedure | OAuth (`manage`) | Replace a space's [`policy`](#space-policy). |
-| `deleteSpace` | pds | procedure | OAuth (`manage`) | Delete a space. |
-=======
-| `importRepo` | pds | procedure | OAuth (`create` on every collection in the archive) | Import a space repo from a [STAR archive](#repo-serialization) during [account migration](#account-migration). |
-| `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in or is the authority of. |
 | `createSpace` | pds | procedure | OAuth (`manage=create`) | Create a space with a given [`policy`](#space-policy); caller becomes the authority. |
 | `updateSpace` | pds | procedure | OAuth (`manage=update`) | Replace a space's [`policy`](#space-policy). |
 | `deleteSpace` | pds | procedure | OAuth (`manage=delete`) | Delete a space. |
->>>>>>> Stashed changes
 | `getSpace` | host | query | OAuth `read_self` | Describe a space: its identity and current [`policy`](#space-policy). |
 | `registerNotify` | host | procedure | space credential | Register a service to be notified of writes for the whole space. |
 | `unregisterNotify` | host | procedure | space credential | Withdraw a `registerNotify` registration. |
@@ -769,7 +761,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 
 The protocol does not specify how a space is configured, how an authority decides who may read it, or which writers it tracks and forwards notifications for. Those are the concern of the space's **policy**.
 
-Each space policy defines a `policy` object that is used to configure a space under that policy.
+Each policy defines a `policy` object, identified by its `$type`, that configures a space under that policy.
 
 ```json
 {
@@ -778,9 +770,10 @@ Each space policy defines a `policy` object that is used to configure a space un
   "publicWrite": false
 }
 ```
-A space is created, updated, and deleted through a small set of policy-agnostic methods under `com.atproto.space`. Both `createSpace` and `updateSpace` take the full `policy` object, including its configuration. `updateSpace` replaces the `policy` object wholesale. If the new policy has the same `$type` as the current one, this is a configuration change. If the host does not implement the requested policy then it MUST fail with an `UnsupportedPolicy` error on create or update. 
 
-Generally, if a space migrates between two policies of different `$type`, state from the previous policy (such as a `memberspace` member list) should be discarded, and migrating back to the previous policy should not restore it. The space's writer set may be re-evaluated, but applications should not expect this, and applications remain responsible for [removing any writers](#the-sync-boundary-writer-set) from the writer set.
+A space is created, updated, and deleted through a small set of policy-agnostic methods under `com.atproto.space`. Both `createSpace` and `updateSpace` take the full `policy` object, including its configuration, and MUST fail with an `UnsupportedPolicy` error if the host does not implement the requested policy. `updateSpace` replaces the `policy` object wholesale. If the new policy has the same `$type` as the current one, this is a configuration change.
+
+If the `$type` differs, the space migrates to a new policy. Generally, state from the previous policy (such as a `memberspace` member list) should be discarded, and migrating back to the previous policy should not restore it. The space's writer set may be re-evaluated, but applications should not expect this, and applications remain responsible for [removing any writers](#the-sync-boundary-writer-set) from the writer set.
 
 Each policy defines its own access rules, configuration, and any additional XRPC methods. By convention, these methods live in the same namespace as the policy (e.g. `com.atproto.memberspace.*`).
 
@@ -801,15 +794,6 @@ Every PDS MUST support a set of three baseline policies. Each is anchored on the
 These policies are neither the only permitted ones nor privileged ones. They are simply the ones every PDS is required to support. Other policies are full protocol participants, and may be implemented by a PDS or by a bespoke space host.
 
 In each baseline policy, reading and writing are independent permissions. Read access controls whether a space credential is minted. Write access controls whether the authority tracks the writer in `listRepos` and forwards their `notifyWrite` notifications. It does not prevent an account from writing records into its own space repo, and applications remain responsible for deciding which records to include in their views.
-
-### App access
-
-Each baseline policy carries an optional `allowedApps` field, a list of OAuth client IDs, that decides per-app authorization:
-
-- When omitted (the default), any application may access the space. No [client attestation](#client-attestation) is required, so public clients work.
-- When set, only the listed apps may access the space. The authority evaluates the list against the **attested** `client_id` (the `iss` of the verified client attestation).
-
-A user must be authorized by the policy **and** their app by `allowedApps` for a credential to be minted. `allowedApps` does not apply to writes because write notifications authenticate the writer's repo host rather than the client application that originated the write.
 
 ### Publishing to readers
 
@@ -840,13 +824,15 @@ Note that even if a member list isn't published, members that have written to th
 |---|---|---|
 | `publicRead` | boolean (default false) | Authorize anyone to read, rather than only members. No [delegation token](#delegation-token) is required. |
 | `publicWrite` | boolean (default false) | Track and forward notifications for any user's writes, rather than only members'. |
-| `allowedApps` | array of OAuth client IDs (optional) | The apps the authority authorizes. Any app when omitted. See [App access](#app-access). |
+| `allowedApps` | array of OAuth client IDs (optional) | The apps the authority authorizes. Any app when omitted. |
 | `publishPolicy` | boolean (default false) | [Publish](#publishing-to-readers) the policy to readers. |
 | `publishMembers` | boolean (default false) | [Publish](#publishing-to-readers) the member list to readers. |
 
 When `publicRead` is set, the authority does not require a delegation token to read. It issues a space credential to any requester, so an application such as a syncer can read the space without acting on behalf of a user. `allowedApps` still applies, so if it is set, a client attestation from a listed app is required. When `publicWrite` is set, the authority tracks and forwards notifications for any user's writes.
 
 Otherwise, the authority authorizes a user whose member-list entry has the corresponding `read` or `write` boolean set to true. For reads, the user is identified by a delegation token.
+
+When `allowedApps` is omitted, any application may read the space, and no [client attestation](#client-attestation) is required, so public clients work. When set, the authority mints a credential only for a listed app, evaluated against the **attested** `client_id` (the `iss` of the verified client attestation). `allowedApps` does not apply to writes, because write notifications authenticate the writer's repo host rather than the client application that originated the write.
 
 The member list is managed through `memberspace`'s own methods:
 
@@ -856,7 +842,7 @@ The member list is managed through `memberspace`'s own methods:
 | `removeMember` | procedure | OAuth (`manage=update`) | Remove a member (by DID). |
 | `listMembers` | query | OAuth (`read_self`) | List the current members of the space and their `read` and `write` access. |
 
-Each member-list entry carries required `read` and `write` booleans, and `putMember` replaces both together. The member list is not part of the `policy` object. It persists across configuration changes and is discarded on [migration](#policy-migration) to a different policy.
+Each member-list entry carries required `read` and `write` booleans, and `putMember` replaces both together. The member list is not part of the `policy` object. It persists across configuration changes and is discarded on [migration](#space-policy) to a different policy.
 
 When `removeMember` removes a member, or `putMember` revokes a member's write access, the authority SHOULD also remove that account from the writer set. Writers tracked under `publicWrite` are not on the member list, but can be explicitly removed with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set). While `publicWrite` is set, a removed writer is tracked again as soon as it writes.
 
@@ -867,7 +853,6 @@ When `removeMember` removes a member, or `putMember` revokes a member's write ac
 | Field | Values | Description |
 |---|---|---|
 | `managingApp` | service identifier (DID + fragment) | Required. The service the authority asks whether to authorize a user. |
-| `allowedApps` | array of OAuth client IDs (optional) | The apps the authority authorizes. Any app when omitted. See [App access](#app-access). |
 | `publishPolicy` | boolean (default false) | [Publish](#publishing-to-readers) the policy to readers. |
 
 | Method | Type | Auth | Description |
