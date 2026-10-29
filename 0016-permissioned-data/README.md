@@ -895,6 +895,8 @@ The metadata simply contains the space ref:
 }
 ```
 
+The metadata and all values are [DRISL](https://dasl.ing/drisl.html)-encoded.
+
 The body has three sections, in this order:
 
 1. **Policy.** A single `policy` key, whose value is the space's policy object.
