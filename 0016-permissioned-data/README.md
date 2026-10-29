@@ -592,6 +592,8 @@ The writer set is a simple fetch and carries no commit or history. It enumerates
 
 The writer set is what the authority *claims*, and is not itself authoritative for any individual repo. It is current as far as the authority's notifications have kept it. A listed account's repo host is the source of truth for whether that repo actually holds data. A syncer treats the writer set as the starting point for discovery and confirms each repo by syncing it directly from its host.
 
+The authority can drop an account from the writer set if that account loses write access. This can be explicitly requested with `com.atproto.space.removeWriter`. A removed account can be re-added to the writer set later if they make an authorized write to the space.
+
 ## Space deletion
 
 A space may be deleted by its authority. The authority stops issuing credentials for the space and deletes all records in its own repo in the space.
@@ -662,7 +664,7 @@ This default follows the same dynamic-update semantics as a [permission set](htt
 
 **Space management operations** are governed by `manage`, which takes the same `create`/`update`/`delete` verbs applied to the space itself rather than to its records. `manage` ignores `collection`. It is omitted by default, so an ordinary record-access grant confers no administrative capability.
 
-The protocol does not enumerate what each `manage` verb permits, because space management is implementation-defined (see [`simplespace`](#required-pds-space-management-simplespace)). Each space-management implementation maps the verbs onto its own administrative surface. For example, in `com.atproto.simplespace`, `manage=update` authorizes `com.atproto.simplespace.updateSpace` as well as `putMember` and `removeMember`.
+The protocol does not enumerate what each `manage` verb permits, because space management is implementation-defined (see [`simplespace`](#required-pds-space-management-simplespace)). Each space-management implementation maps the verbs onto its own administrative surface. For example, in `com.atproto.simplespace`, `manage=update` authorizes `com.atproto.simplespace.updateSpace` as well as `putMember` and `removeMember`. `manage=update` also authorizes `com.atproto.space.removeWriter`.
 
 `manage=create` authorizes creating a space of the given `spaceType` under the given authority. It concerns a space that does not yet exist, so scoping it to a concrete `skey` is unusual. It is typically granted with `skey=*` ("this app may create spaces of this type").
 
@@ -730,6 +732,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 |---|---|---|---|---|
 | `getSpaceCredential` | host | procedure | none (delegation token and client attestation included in request body) | Request a space credential. |
 | `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `data`. |
+| `removeWriter` | host | procedure | OAuth | Remove an account from a space's [writer set](#the-sync-boundary-writer-set). |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
 | `getBlob` | repo | query | OAuth / space credential | Fetch a blob by CID. |
@@ -782,6 +785,8 @@ The management procedures are called with an OAuth credential with the relevant 
 | `managingApp` | service identifier (DID + fragment) | Used as the access check target when either policy is `managing-app`. |
 
 `simplespace` treats reading and writing as independent permissions. Read access controls whether a space credential is minted. Write access controls whether the authority tracks the writer in `listRepos` and forwards their `notifyWrite` notifications. It does not prevent an account from writing records into its own space repo; applications remain responsible for deciding which records to include in their views.
+
+When `removeMember` removes a member, or `putMember` revokes a member's write access, the authority SHOULD also remove that account from the writer set. For writers that are not on the member list, such as those tracked under a `public` or `managing-app` policy, the authority can explicitly remove them with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set). Note that under a `public` policy, a removed writer is tracked again as soon as it writes.
 
 Each member-list entry carries required `read` and `write` booleans. `putMember` replaces both values together.
 
