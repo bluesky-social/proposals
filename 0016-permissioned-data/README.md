@@ -361,7 +361,7 @@ A space repo can be cleared all at once with `com.atproto.space.clearRecords`. T
 
 Writing a record to the space again recreates the repo under the same rules above. Deleting a repo does not delete the space itself (see [Space deletion](#space-deletion)).
 
-A repo host MAY garbage collect an empty space repo, discarding its commit and any other remaining state. This may happen as routine cleanup or during [account migration](#account-lifecycle), where empty repos need not be carried over to the new host. The host SHOULD wait a while before collecting a cleared repo, to give the clear time to propagate to the space host and to syncers. Once collected, the host responds to requests for the repo as if it never existed.
+A repo host MAY garbage collect an empty space repo, discarding its commit and any other remaining state. This may happen as routine cleanup or during [account migration](#account-migration), where empty repos need not be carried over to the new host. The host SHOULD wait a while before collecting a cleared repo, to give the clear time to propagate to the space host and to syncers. Once collected, the host responds to requests for the repo as if it never existed.
 
 ### Commit digest
 
@@ -746,11 +746,14 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `deleteRecord` | pds | procedure | OAuth | Delete a record. |
 | `applyWrites` | pds | procedure | OAuth | Apply a batch of creates, updates, and deletes to one repo atomically. |
 | `clearRecords` | pds | procedure | OAuth | Delete every record in the caller's repo in the specified space. |
-| `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in. |
+| `importRepo` | pds | procedure | OAuth (`create` on every collection in the archive) | Import a space repo from a [STAR archive](#repo-serialization) during [account migration](#account-migration). |
+| `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in or is the authority of. |
 | `createSpace` | pds | procedure | OAuth (`manage=create`) | Create a space with a given [`policy`](#space-policy); caller becomes the authority. |
 | `updateSpace` | pds | procedure | OAuth (`manage=update`) | Replace a space's [`policy`](#space-policy). |
 | `deleteSpace` | pds | procedure | OAuth (`manage=delete`) | Delete a space. |
 | `getSpace` | host | query | OAuth `read_self` | Describe a space: its identity and current [`policy`](#space-policy). |
+| `exportSpaceMeta` | host | query | OAuth `read_self` | Download a space's host-side state as a [space meta archive](#space-meta-archive). |
+| `importSpaceMeta` | pds | procedure | OAuth (`manage=create` and `manage=update`) | Import a space from a [space meta archive](#space-meta-archive) during [account migration](#account-migration). |
 | `registerNotify` | host | procedure | space credential | Register a service to be notified of writes for the whole space. |
 | `unregisterNotify` | host | procedure | space credential | Withdraw a `registerNotify` registration. |
 | `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `data`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
@@ -863,6 +866,56 @@ The authority passes the space, the user, the `access` being checked (`read` or 
 
 Writers approved by the managing app can be explicitly removed from the writer set with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set).
 
+## Account migration
+
+Account migration for space data works similarly to migrating a public repository. The main difference is that a user has many space repos. Each space repository can be exported from the old host through `space.getRepo` and imported to the new host through `space.importRepo`. The new host may give an imported repo a new `rev`, while its commit `data` is unchanged. As well, the new host generates its own [KEM key](#kem-key) and publishes it in the account's DID document.
+
+For spaces that the account is the authority of, the PDS also holds some configuration state that isn't necessarily published as a record in a space repo (e.g. the space's policy or member list). This is exported and imported as a [space meta archive](#space-meta-archive).
+
+On top of the usual account migration flow:
+
+1. Enumerate the account's spaces on the old host with `listSpaces`.
+2. For each space the account is the authority of, download its [space meta archive](#space-meta-archive) with `exportSpaceMeta` and upload it to the new host with `importSpaceMeta`. This must come before importing the account's own repo in that space.
+3. For each space the account holds a repo in, download its repo with `getRepo` and upload it with `importRepo`, then copy over the blobs it references (via `listBlobs`).
+
+Each import requires a `space:` scope that covers the writes it makes. Migrating all of an account's spaces therefore takes very broad scopes.
+
+Notification registrations, credential revocations, and deleted space tombstones are not carried over on migration.
+
+### Space meta archive
+
+A space meta archive is a [STAR file](#repo-serialization) with the `atproto-space-meta` profile. It holds an authority's state for a single space.
+
+The metadata simply contains the space ref:
+```json
+{
+  "$type": "atproto-space-meta",
+  "ver": 1,
+  "space": "at://did:example:forum/space/com.atmoboards.forum/general"
+}
+```
+
+The metadata and all values are [DRISL](https://dasl.ing/drisl.html)-encoded.
+
+The body has three sections, in this order:
+
+1. **Policy.** A single `policy` key, whose value is the space's policy object.
+2. **Policy state.** Any additional config relating to the policy. Keys are structured like repository keys (e.g. `{NSID}/{rkey}`) and the policy defines their values.
+3. **Writers.** One `writer/{did}` key per account in the writer set. Each value carries all required information to support `listRepos` after migration, including `rev`, `data`, and `spaceRev`.
+
+Within each section, keys MUST be in strict lexicographic order of the key bytes, with no duplicates.
+
+```
+policy                                             → { "$type": "com.atproto.memberspace.policy", "readAccess": "members", ... }
+com.atproto.memberspace.member/did:example:alice   → { "$type": "com.atproto.memberspace.member", "read": true, "write": true }
+com.atproto.memberspace.member/did:example:bob     → { "$type": "com.atproto.memberspace.member", "read": true, "write": true }
+com.atproto.memberspace.member/did:example:carol   → { "$type": "com.atproto.memberspace.member", "read": true, "write": false }
+writer/did:example:alice                           → { "rev": "3mwdj...", "data": 0x..., "spaceRev": "3mwdk..." }
+writer/did:example:bob                             → { "rev": "3mwdj...", "data": 0x..., "spaceRev": "3mwdk..." }
+```
+
+The importing host MUST reject the archive on a parse error, a missing, duplicate, or out-of-order key, or a policy it doesn't implement (`UnsupportedPolicy`). It MUST also reject a policy state key it doesn't recognize, rather than silently dropping access state.
+
 ## Considerations
 
 This section is non-normative. It discusses how atproto spaces interact with concerns that span the whole protocol. The short answer to most of them is that they behave much like public broadcast, because they deliberately have the same shape: DID-based authority, per-user repositories, lexicon-typed records, and applications that crawl repos to build views.
@@ -895,7 +948,7 @@ Finally, and relatedly, the sync APIs are not open to the public, so resource ab
 
 An account's participation in a space is tied to the same DID as its public atproto identity. The lifecycle events that already exist, migration, key rotation, deactivation, and deletion, therefore all function the same way in the context of atproto spaces.
 
-**Migration.** Moving a space repo between hosts functions the same as migrating a public repository. The main difference is that a user has many space repos rather than one, so account migration flows will need to enumerate and track all of an account's space repos (via `listSpaces`) and the blobs associated with them (via `listBlobs`). Since the repo host holds the KEM private key, the new host publishes its own `#atproto_kem` key as part of migration.
+**Migration.** Moving space repos between hosts works much like migrating a public repository, with some extra state to carry when the account is a space authority. See [Account migration](#account-migration).
 
 **Key rotation.** The account rotates its KEM key by replacing `#atproto_kem` in its DID document. Requests using the old key may fail MAC verification and need to [retry](#authenticity-headers). This does not change repo hashes or revisions.
 
