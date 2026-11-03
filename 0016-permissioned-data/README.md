@@ -610,6 +610,54 @@ Members' repo hosts are not notified on deletion. A member's records are the mem
 
 An authority MAY recreate a deleted space with the same space type and `skey`. If a member still has records under that space, they become readable again under the recreated space's policy.
 
+## Moderation
+
+Moderation of content and behavior in spaces builds on similar mechanisms as the public broadcast protocol: a combination of infrastructure takedowns and labels as a composable annotation layer. Every service in the network is able to, and must, moderate the data it hosts and serves according to its legal requirements, terms of service, and community guidelines.
+
+One obvious difference is that space data is not always public, and therefore a moderation service cannot observe a space it has not been admitted to. A moderation service functions as just another reader. A moderation service must hold a space credential like any other syncer, which means the space authority has admitted it under the same [access control](#access-control) rules.
+
+One basic moderation mechanism which is specific to spaces is that space authorities can exclude individual accounts from participating. For restricted access spaces this includes both reading and writing content; for public-access spaces it only means preventing inclusion in the sync writer set.
+
+The protocol does not specify a universal moderation reporting interface.
+
+### Label Records
+
+Labels on space data are similar to public data labels, but use a different synchronization mechanism.
+
+Space labels are records written in to a space repository by the label authority account. Labels on space records must be published in to the same space that the subject record is in: labels referencing records across space boundaries must be ignored. Synchronizing services index label records the same as any other space data, and then use the usual atproto label HTTP headers to determine which labels to hydrate in API responses.
+
+Label records are authenticated and contextualized by the repository they appear in. They are not individually signed, and have fewer fields than full space objects. If there are multiple labels with the same `(uri, cid, val)` tuple in the same repository, indexing services should use the most recent label and ignore the rest. They can determine age using the created at timestamp (`cts`).
+
+Labeling services must have their account be added to the space's writer set to publish labels. Space authorities are implicitly included in the writer set (reference section XXX), and can always publish label records. As a convention, space authorities may publish `!takedown` labels to remove content from their spaces, and synchronizing services and client apps should respect such takedown labels.
+
+Application modalities building on spaces may define declaration records to provide additional context about labels and labeling services. The protocol does not define a universal declaration type.
+
+How label records that reference overall accounts should work is an open question. It may be specified in the future, but is currently undefined behavior.
+
+Labeling services should not publish regular public labels (using `com.atproto.label.subscribeLabels`) for records that reside in non-public spaces, as this leaks metadata about otherwise-private data.
+
+For now the label record mechanism must only be used with space data. A natural extension of label records would be to use them with public repository data. The details of this have not been specified, and any such records written today may be invalidated or have semantics shifted when specification happens. We strongly recommend holding off on experimentation until this is designed in an interoperable way, possibly when the atproto labeling system is brought to the IETF working group.
+
+### Takedowns
+
+All services in the network are responsible for some degree of infrastructure moderation. Many interventions are possible in theory, but we recommend the following capabilities as a baseline.
+
+Account hosting service operators (eg, PDS):
+
+- account takedown: impacts all spaces and space repositories
+- blob takedown: same mechanism for individual public blobs should work with space blobs
+
+Space host operators (eg, PDS or group host):
+
+- account takedown of space authorities: should impact all spaces
+
+App service operators (aka, AppViews):
+
+- account takedown: should include all public repo data, all space repo data, and any spaces the account is authority of
+- space takedown: ability to take down a specific space from a specific authority
+- content takedown: ability to take down individual pieces of content, eg individual records
+
+
 ## OAuth scopes
 
 A user grants an application access to spaces through a `space:` OAuth scope. The scope identifies a set of spaces by their `(authority, spaceType, skey)` identifier and states what the grant permits within them.
@@ -919,18 +967,6 @@ The importing host MUST reject the archive on a parse error, a missing, duplicat
 ## Considerations
 
 This section is non-normative. It discusses how atproto spaces interact with concerns that span the whole protocol. The short answer to most of them is that they behave much like public broadcast, because they deliberately have the same shape: DID-based authority, per-user repositories, lexicon-typed records, and applications that crawl repos to build views.
-
-### Moderation
-
-Moderation in public broadcast atproto is handled at various levels, including labeling and infrastructure takedowns. Every service in the network is able to, and must, moderate the data it hosts and serves according to its legal requirements, terms of service, and community guidelines. In addition, moderation services may publish public labels that applications and infrastructure providers can then act on.
-
-The same moderation model applies to atproto spaces, with the obvious difference that the data is not open, and therefore a moderation service cannot observe a space it has not been admitted to. A moderation service functions as just another reader. To label content in a space, a moderation service must hold a space credential like any other syncer, which means the space authority has admitted it under the same [access control](#access-control) rules.
-
-A moderation service should not publish public labels for records that reside in spaces, as this leaks metadata about otherwise-private data. The public `com.atproto.label.subscribeLabels` endpoint is therefore a poor fit here. Instead, labelers may publish labels as records in a repo within the relevant space, keeping the labels inside the same access boundary as the content they describe.
-
-At the infrastructure level, familiar tools and processes apply. Each participant retains authority over their own repo and can delete their own records. A repo host can take down accounts or refuse to serve repos that it hosts. An application can filter records from the views that it serves.
-
-A space authority has an additional lever with no public analogue. Because reading requires a credential it issues, it can decline to issue one to a user and thereby cut off read access, or stop issuing credentials for the space entirely (see [space deletion](#space-deletion)). Some spaces may also include records with application-level semantics for restricting writes from moderated users.
 
 ### Scaling
 
