@@ -626,6 +626,14 @@ Labels on space data are similar to public data labels, but use a different sync
 
 Space labels are records written in to a space repository by the label authority account. Labels on space records must be published in to the same space that the subject record is in: labels referencing records across space boundaries must be ignored. Synchronizing services index label records the same as any other space data, and then use the usual atproto label HTTP headers to determine which labels to hydrate in API responses.
 
+The label record type is `com.atproto.label.record` with fields:
+
+- `uri` (string, URI format, required): subject of the label
+- `cid` (string, CID format, optional): version of the subject
+- `val` (string, required): label value, with the same syntax restrictions and best practices as public labels
+- `cts` (string, datetime format, required): "created at" timestamp
+- `exp` (string, datetime format, optional): "expires at" timestamp
+
 Label records are authenticated and contextualized by the repository they appear in. They are not individually signed, and have fewer fields than full space objects. If there are multiple labels with the same `(uri, cid, val)` tuple in the same repository, indexing services should use the most recent label and ignore the rest. They can determine age using the created at timestamp (`cts`).
 
 Labeling services must have their account be added to the space's writer set to publish labels. Space authorities are implicitly included in the [writer set](#the-sync-boundary-writer-set), and can always publish label records. As a convention, space authorities may publish `!takedown` labels to remove content from their spaces, and synchronizing services and client apps should respect such takedown labels.
