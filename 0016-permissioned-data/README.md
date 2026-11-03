@@ -628,7 +628,7 @@ Space labels are records written in to a space repository by the label authority
 
 Label records are authenticated and contextualized by the repository they appear in. They are not individually signed, and have fewer fields than full space objects. If there are multiple labels with the same `(uri, cid, val)` tuple in the same repository, indexing services should use the most recent label and ignore the rest. They can determine age using the created at timestamp (`cts`).
 
-Labeling services must have their account be added to the space's writer set to publish labels. Space authorities are implicitly included in the writer set (reference section XXX), and can always publish label records. As a convention, space authorities may publish `!takedown` labels to remove content from their spaces, and synchronizing services and client apps should respect such takedown labels.
+Labeling services must have their account be added to the space's writer set to publish labels. Space authorities are implicitly included in the [writer set](#the-sync-boundary-writer-set), and can always publish label records. As a convention, space authorities may publish `!takedown` labels to remove content from their spaces, and synchronizing services and client apps should respect such takedown labels.
 
 Application modalities building on spaces may define declaration records to provide additional context about labels and labeling services. The protocol does not define a universal declaration type.
 
