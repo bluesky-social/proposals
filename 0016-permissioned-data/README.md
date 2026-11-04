@@ -510,7 +510,7 @@ A STAR file takes the following form:
 
 The magic bytes are `0x2A 0x6C 0x01 0x00`. Each `len` is an unsigned varint giving the byte length of the following item. Each pair is preceded by a `0x01` byte, and the archive ends with a `0x00` byte. Framing and parsing follow STAR's rules.
 
-The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map, containing `$type` set to `atproto-space-repo` and all fields of the [commit](#space-repos). The commit's MAC is carried in the response's [`Atproto-Space-Mac` header](#authenticity-headers), not in the metadata.
+The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map of at most 64 KiB (65,536 bytes), containing `$type` set to `atproto-space-repo` and all fields of the [commit](#space-repos). The commit's MAC is carried in the response's [`Atproto-Space-Mac` header](#authenticity-headers), not in the metadata.
 
 Here is an example metadata object for a space repo:
 ```json
@@ -526,7 +526,7 @@ Here is an example metadata object for a space repo:
 
 The body contains every record in the repo:
 
-- Each key is the UTF-8 encoding of a valid record path, `{collection}/{rkey}`
+- Each key is the UTF-8 encoding of a valid record path, `{collection}/{rkey}`, at most 4 KiB (4,096 bytes)
 - Each value is the record's canonical DRISL encoding, at most 1 MiB (1,048,576 bytes)
 - Records MUST appear in strict lexicographic order of the key bytes, with no duplicate keys.
 
@@ -895,7 +895,7 @@ The metadata simply contains the space ref:
 }
 ```
 
-The metadata and all values are [DRISL](https://dasl.ing/drisl.html)-encoded.
+The metadata and all values are [DRISL](https://dasl.ing/drisl.html)-encoded. The metadata is at most 64 KiB (65,536 bytes), each key at most 4 KiB (4,096 bytes), and each value at most 1 MiB (1,048,576 bytes).
 
 The body has three sections, in this order:
 
@@ -914,7 +914,7 @@ writer/did:example:alice                           → { "rev": "3mwdj...", "dat
 writer/did:example:bob                             → { "rev": "3mwdj...", "data": 0x..., "spaceRev": "3mwdk..." }
 ```
 
-The importing host MUST reject the archive on a parse error, a missing, duplicate, or out-of-order key, or a policy it doesn't implement (`UnsupportedPolicy`). It MUST also reject a policy state key it doesn't recognize, rather than silently dropping access state.
+The importing host MUST reject the archive on a parse error, an exceeded length limit, a missing, duplicate, or out-of-order key, or a policy it doesn't implement (`UnsupportedPolicy`). It MUST also reject a policy state key it doesn't recognize, rather than silently dropping access state.
 
 ## Considerations
 
