@@ -510,7 +510,7 @@ A STAR file takes the following form:
 
 The magic bytes are `0x2A 0x6C 0x01 0x00`. Each `len` is an unsigned varint giving the byte length of the following item. Each pair is preceded by a `0x01` byte, and the archive ends with a `0x00` byte. Framing and parsing follow STAR's rules.
 
-The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map of at most 64 KiB (65,536 bytes), containing `$type` set to `atproto-space-repo` and all fields of the [commit](#space-repos). The commit's MAC is carried in the response's [`Atproto-Space-Mac` header](#authenticity-headers), not in the metadata.
+The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map containing `$type` set to `atproto-space-repo` and all fields of the [commit](#space-repos). The commit's MAC is carried in the response's [`Atproto-Space-Mac` header](#authenticity-headers), not in the metadata.
 
 Here is an example metadata object for a space repo:
 ```json
@@ -526,8 +526,8 @@ Here is an example metadata object for a space repo:
 
 The body contains every record in the repo:
 
-- Each key is the UTF-8 encoding of a valid record path, `{collection}/{rkey}`, at most 4 KiB (4,096 bytes)
-- Each value is the record's canonical DRISL encoding, at most 1 MiB (1,048,576 bytes)
+- Each key is the UTF-8 encoding of a valid record path, `{collection}/{rkey}`
+- Each value is the record's canonical DRISL encoding
 - Records MUST appear in strict lexicographic order of the key bytes, with no duplicate keys.
 
 Pairs continue until the end byte (`0x00`); an empty repo has none. A consumer can reconstruct and verify the snapshot as a stream:
@@ -536,7 +536,17 @@ Pairs continue until the end byte (`0x00`); an empty repo has none. A consumer c
 2. Starting with an empty [set hash](#commit-digest), read each path/record pair, validate the path and record encoding, compute the record's CID, and fold `{collection}/{rkey}/{record_cid}` into the running set hash.
 3. Once every record has been streamed, compare `sha256(state)` against the commit's `data`. Only a match establishes that the complete repo has been received.
 
-Readers MUST reject the entire archive on a parse error, non-canonical metadata, an exceeded length limit, a duplicate or out-of-order key, a MAC mismatch, or a digest mismatch.
+Readers MUST reject the entire archive on a parse error, non-canonical metadata, a duplicate or out-of-order key, a MAC mismatch, or a digest mismatch.
+
+#### Archive limits
+
+As an operational best practice, the STAR profiles in this proposal (`atproto-space-repo` and [`atproto-space-meta`](#space-meta-archive)) observe the following size limits, which may be raised over time:
+
+- Metadata: 64 KiB (65,536 bytes)
+- Each key: 4 KiB (4,096 bytes)
+- Each value: 1 MiB (1,048,576 bytes)
+
+These are overall caps, separate from the syntax rules for keys and values. A valid record path, for example, is well under 4 KiB. Readers may reject an archive that exceeds them.
 
 ## Sync
 
@@ -895,7 +905,7 @@ The metadata simply contains the space ref:
 }
 ```
 
-The metadata and all values are [DRISL](https://dasl.ing/drisl.html)-encoded. The metadata is at most 64 KiB (65,536 bytes), each key at most 4 KiB (4,096 bytes), and each value at most 1 MiB (1,048,576 bytes).
+The metadata and all values are [DRISL](https://dasl.ing/drisl.html)-encoded and subject to the same [archive limits](#archive-limits) as the `atproto-space-repo` STAR profile.
 
 The body has three sections, in this order:
 
@@ -914,7 +924,7 @@ writer/did:example:alice                           → { "rev": "3mwdj...", "dat
 writer/did:example:bob                             → { "rev": "3mwdj...", "data": 0x..., "spaceRev": "3mwdk..." }
 ```
 
-The importing host MUST reject the archive on a parse error, an exceeded length limit, a missing, duplicate, or out-of-order key, or a policy it doesn't implement (`UnsupportedPolicy`). It MUST also reject a policy state key it doesn't recognize, rather than silently dropping access state.
+The importing host MUST reject the archive on a parse error, a missing, duplicate, or out-of-order key, or a policy it doesn't implement (`UnsupportedPolicy`). It MUST also reject a policy state key it doesn't recognize, rather than silently dropping access state.
 
 ## Considerations
 
