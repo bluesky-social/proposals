@@ -880,6 +880,8 @@ On top of the usual account migration flow:
 
 Each import requires a `space:` scope that covers the writes it makes. An import that includes a record the scope does not cover is rejected as a whole, not imported in part. Migrating all of an account's spaces therefore takes very broad scopes.
 
+An account taken down by its host should still be able to export its spaces through `listSpaces`, `exportSpaceMeta`, `getRepo`, `listBlobs`, and `getBlob`, just as it can export its public repo, so that it can migrate away.
+
 Notification registrations, credential revocations, and deleted space tombstones are not carried over on migration.
 
 ### Space meta archive
@@ -928,7 +930,7 @@ The same moderation model applies to atproto spaces, with the obvious difference
 
 A moderation service should not publish public labels for records that reside in spaces, as this leaks metadata about otherwise-private data. The public `com.atproto.label.subscribeLabels` endpoint is therefore a poor fit here. Instead, labelers may publish labels as records in a repo within the relevant space, keeping the labels inside the same access boundary as the content they describe.
 
-At the infrastructure level, familiar tools and processes apply. Each participant retains authority over their own repo and can delete their own records. A repo host can take down accounts or refuse to serve repos that it hosts. An application can filter records from the views that it serves.
+At the infrastructure level, familiar tools and processes apply. Each participant retains authority over their own repo and can delete their own records. A repo host can take down accounts or refuse to serve repos that it hosts. As with `com.atproto.sync.*`, the repo methods answer requests for a taken-down or deactivated repo with `RepoTakendown` or `RepoDeactivated`. An application can filter records from the views that it serves.
 
 A space authority has an additional lever with no public analogue. Because reading requires a credential it issues, it can decline to issue one to a user and thereby cut off read access, or stop issuing credentials for the space entirely (see [space deletion](#space-deletion)). Some spaces may also include records with application-level semantics for restricting writes from moderated users.
 
@@ -953,5 +955,7 @@ An account's participation in a space is tied to the same DID as its public atpr
 **Key rotation.** The account rotates its KEM key by replacing `#atproto_kem` in its DID document. Requests using the old key may fail MAC verification and need to [retry](#authenticity-headers). This does not change repo hashes or revisions.
 
 **Deactivation & deletion.** Deactivation and deletion function exactly as they do for [public broadcast](https://atproto.com/specs/account#hosting-status). If an account is deleted, downstream services are expected to delete all data associated with the account, whether public or in spaces. If an account is deactivated, downstream services are expected to stop serving all data associated with it, whether public or in spaces.
+
+If a space authority is taken down or deactivated, its spaces are suspended. The space host answers `getSpaceCredential` and `listWriters` with `RepoTakendown` or `RepoDeactivated`. Credentials already issued remain valid until they expire, members' repos are unaffected, and the spaces resume if the account is reinstated. Unlike [space deletion](#space-deletion), this is not a signal for syncers to drop the space's data.
 
 **Identity & account events.** Applications currently learn about changes to an account's status or identity (such as its signing key, KEM key, and handle) via events on the firehose (`com.atproto.sync.subscribeRepos`). These same account updates apply to space repos in exactly the same manner. This means an application that syncs only space repos, and no public repositories, still needs to subscribe to a firehose to receive `#account` and `#identity` events. Future work may include an additional subscription endpoint that broadcasts only those two event types without the full stream of public repository commits.
