@@ -640,7 +640,7 @@ Labeling services must have their account included in the space's writer set for
 
 Application modalities building on spaces may define declaration records to provide additional context about labels and labeling services. The protocol does not define a universal declaration type.
 
-How label records that reference overall accounts should work is an open question. It may be specified in the future, but is currently undefined behavior.
+How label records that reference overall accounts should work is an open question. For now space types may define their own behaviors. The specification may be updated in the future to clarify default behaviors.
 
 Labeling services should not publish regular public labels (using `com.atproto.label.subscribeLabels`) for records that reside in non-public spaces, as this leaks metadata about otherwise-private data.
 
