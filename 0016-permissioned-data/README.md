@@ -498,19 +498,19 @@ mac = HMAC-SHA256(shared_secret, context || record_cid_bytes)
 
 ### Repo serialization
 
-A space repo is serialized as a [STAR-lite v1 file](https://tangled.org/microcosm.blue/star/tree/main/v1-star) (STAR for short). It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
+A space repo is serialized as a [STAR file](https://dasl.ing/star.html). It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
 
 STAR is an archive format with a metadata header followed by a sequence of key/value pairs. The `atproto-space-repo` profile defined here uses record paths as keys and encoded records as values.
 
 A STAR file takes the following form:
 ```
-|-------- header --------| |--------------------- data (records) -----------------------|
-[ magic | len | metadata ] [ len | path | len | record ] [ len | path | len | record ]...
+|-------- header --------| |------------------------- data (records) ---------------------------| | end |
+[ magic | len | metadata ] [ 1 | len | path | len | record ] [ 1 | len | path | len | record ]... [  0  ]
 ```
 
-The magic bytes are `0x2A 0x6C 0x01 0x00`. Each `len` is an unsigned varint giving the byte length of the following item. Framing and parsing follow STAR's rules.
+The magic bytes are `0x2A 0x6C 0x01 0x00`. Each `len` is an unsigned varint giving the byte length of the following item. Each pair is preceded by a `0x01` byte, and the archive ends with a `0x00` byte. Framing and parsing follow STAR's rules.
 
-The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map, containing `$type` set to `atproto-space-repo` and all fields of the [commit](#space-repos). The commit's MAC is carried in the response's [`Atproto-Space-Mac` header](#authenticity-headers), not in the metadata.
+The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map containing `$type` set to `atproto-space-repo` and all fields of the [commit](#space-repos). The commit's MAC is carried in the response's [`Atproto-Space-Mac` header](#authenticity-headers), not in the metadata.
 
 Here is an example metadata object for a space repo:
 ```json
@@ -527,16 +527,26 @@ Here is an example metadata object for a space repo:
 The body contains every record in the repo:
 
 - Each key is the UTF-8 encoding of a valid record path, `{collection}/{rkey}`
-- Each value is the record's canonical DRISL encoding, at most 1 MiB (1,048,576 bytes)
+- Each value is the record's canonical DRISL encoding
 - Records MUST appear in strict lexicographic order of the key bytes, with no duplicate keys.
 
-Pairs continue until EOF; an empty repo has none. A consumer can reconstruct and verify the snapshot as a stream:
+Pairs continue until the end byte (`0x00`); an empty repo has none. A consumer can reconstruct and verify the snapshot as a stream:
 
 1. Validate the metadata, including `$type` and the commit version, and check that `repo` and `space` match the requested repo. Verify the [commit MAC](#commit-mac) from the response header. The commit's `data` is then trusted.
 2. Starting with an empty [set hash](#commit-digest), read each path/record pair, validate the path and record encoding, compute the record's CID, and fold `{collection}/{rkey}/{record_cid}` into the running set hash.
 3. Once every record has been streamed, compare `sha256(state)` against the commit's `data`. Only a match establishes that the complete repo has been received.
 
-Readers MUST reject the entire archive on a parse error, non-canonical metadata, an exceeded length limit, a duplicate or out-of-order key, a MAC mismatch, or a digest mismatch.
+Readers MUST reject the entire archive on a parse error, non-canonical metadata, a duplicate or out-of-order key, a MAC mismatch, or a digest mismatch.
+
+#### Archive limits
+
+As an operational best practice, the STAR profiles in this proposal (`atproto-space-repo` and [`atproto-space-meta`](#space-meta-archive)) observe the following size limits, which may be raised over time:
+
+- Metadata: 64 KiB (65,536 bytes)
+- Each key: 4 KiB (4,096 bytes)
+- Each value: 1 MiB (1,048,576 bytes)
+
+These are overall caps, separate from the syntax rules for keys and values. A valid record path, for example, is well under 4 KiB. Readers may reject an archive that exceeds them.
 
 ## Sync
 
@@ -897,7 +907,7 @@ The metadata simply contains the space ref:
 }
 ```
 
-The metadata and all values are [DRISL](https://dasl.ing/drisl.html)-encoded.
+The metadata and all values are [DRISL](https://dasl.ing/drisl.html)-encoded and subject to the same [archive limits](#archive-limits) as the `atproto-space-repo` STAR profile.
 
 The body has three sections, in this order:
 
