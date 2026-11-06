@@ -154,9 +154,9 @@ The authority can base its decision on two signed assertions:
 - **which user** is being acted for: established by a **delegation token** minted by the user's PDS
 - **which application** is acting: established by a **client attestation** signed by the application itself
 
-A space authority may require either assertion, both, or neither. The authority MUST NOT reject a request solely because it includes a valid assertion that the space does not require. Spaces that require neither offer public access, though syncing applications must still obtain a space credential.
+A space authority may require either assertion, both, or neither. The authority MUST NOT reject a request solely because it includes a valid assertion that the space does not require. Spaces may offer public access by requiring neither (e.g. a [`memberspace`](#memberspace) with `publicRead`), though syncing applications must still obtain a space credential.
 
-An application requests a credential by presenting any required assertions to the space authority. The authority decides whether to issue the credential. The protocol does not define the decision procedure (the policies of the PDS's space-management implementation are described under [`simplespace`](#required-pds-space-management-simplespace)).
+An application requests a credential by presenting any required assertions to the space authority. The authority decides whether to issue the credential. The protocol does not define the decision procedure; it is determined by the space's [`policy`](#space-policy) (for the policies every PDS supports, see [Baseline policies](#baseline-policies)).
 
 These requirements are generally communicated at the application layer, but may also be discoverable from the error type returned when a required assertion is missing.
 
@@ -355,7 +355,13 @@ Each space repo is summarized by a **commit**, which lets a syncer check whether
 
 A user's space repo is automatically created when they first write a record to that space. No separate repo-creation operation is needed. When the space authority is another DID, the user's PDS does not need to check whether the space exists before accepting the write. If the user is also the space authority (the space authority DID is the user's own DID), the space must already exist. 
 
-An empty space repo and a nonexistent space repo are equivalent. To delete a space repo, the user deletes all records within it. There is no separate repo deletion operation. Writing a record to that space again automatically creates the repo under the same rules above. Deleting a repo does not delete the space itself (see [Space deletion](#space-deletion)).
+There is no space repo deletion operation. Instead, an empty space repo and a nonexistent one are treated as equivalent. Space repos are cleared rather than deleted because the repo needs to stay around in the writer set, and the host needs to answering sync requests with a valid commit showing that the records are gone.
+
+A space repo can be cleared all at once with `com.atproto.space.clearRecords`. The host deletes every record and advances the repo to a new `rev` with the empty repo's digest. The empty LtHash state is all zeroes, so an empty repo's `data` is always `e5a00aa9991ac8a5ee3109844d84a55583bd20572ad3ffcd42792f3c36b183ad`. The host then simply clears the operation log and sends a [write notification](#write-notifications) to the space host.
+
+Writing a record to the space again recreates the repo under the same rules above. Deleting a repo does not delete the space itself (see [Space deletion](#space-deletion)).
+
+A repo host MAY garbage collect an empty space repo, discarding its commit and any other remaining state. This may happen as routine cleanup or during [account migration](#account-migration), where empty repos need not be carried over to the new host. The host SHOULD wait a while before collecting a cleared repo, to give the clear time to propagate to the space host and to syncers. Once collected, the host responds to requests for the repo as if it never existed.
 
 ### Commit digest
 
@@ -492,19 +498,19 @@ mac = HMAC-SHA256(shared_secret, context || record_cid_bytes)
 
 ### Repo serialization
 
-A space repo is serialized as a [STAR-lite v1 file](https://tangled.org/microcosm.blue/star/tree/main/v1-star) (STAR for short). It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
+A space repo is serialized as a [STAR file](https://dasl.ing/star.html). It is served by [`com.atproto.space.getRepo`](#xrpc-api) and is the transport for [full-state recovery](#full-state-recovery). Blobs are not included and are fetched separately via [`getBlob`](#blob-sync).
 
 STAR is an archive format with a metadata header followed by a sequence of key/value pairs. The `atproto-space-repo` profile defined here uses record paths as keys and encoded records as values.
 
 A STAR file takes the following form:
 ```
-|-------- header --------| |--------------------- data (records) -----------------------|
-[ magic | len | metadata ] [ len | path | len | record ] [ len | path | len | record ]...
+|-------- header --------| |------------------------- data (records) ---------------------------| | end |
+[ magic | len | metadata ] [ 1 | len | path | len | record ] [ 1 | len | path | len | record ]... [  0  ]
 ```
 
-The magic bytes are `0x2A 0x6C 0x01 0x00`. Each `len` is an unsigned varint giving the byte length of the following item. Framing and parsing follow STAR's rules.
+The magic bytes are `0x2A 0x6C 0x01 0x00`. Each `len` is an unsigned varint giving the byte length of the following item. Each pair is preceded by a `0x01` byte, and the archive ends with a `0x00` byte. Framing and parsing follow STAR's rules.
 
-The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map, containing `$type` set to `atproto-space-repo` and all fields of the [commit](#space-repos). The commit's MAC is carried in the response's [`Atproto-Space-Mac` header](#authenticity-headers), not in the metadata.
+The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map containing `$type` set to `atproto-space-repo` and all fields of the [commit](#space-repos). The commit's MAC is carried in the response's [`Atproto-Space-Mac` header](#authenticity-headers), not in the metadata.
 
 Here is an example metadata object for a space repo:
 ```json
@@ -521,16 +527,26 @@ Here is an example metadata object for a space repo:
 The body contains every record in the repo:
 
 - Each key is the UTF-8 encoding of a valid record path, `{collection}/{rkey}`
-- Each value is the record's canonical DRISL encoding, at most 1 MiB (1,048,576 bytes)
+- Each value is the record's canonical DRISL encoding
 - Records MUST appear in strict lexicographic order of the key bytes, with no duplicate keys.
 
-Pairs continue until EOF; an empty repo has none. A consumer can reconstruct and verify the snapshot as a stream:
+Pairs continue until the end byte (`0x00`); an empty repo has none. A consumer can reconstruct and verify the snapshot as a stream:
 
 1. Validate the metadata, including `$type` and the commit version, and check that `repo` and `space` match the requested repo. Verify the [commit MAC](#commit-mac) from the response header. The commit's `data` is then trusted.
 2. Starting with an empty [set hash](#commit-digest), read each path/record pair, validate the path and record encoding, compute the record's CID, and fold `{collection}/{rkey}/{record_cid}` into the running set hash.
 3. Once every record has been streamed, compare `sha256(state)` against the commit's `data`. Only a match establishes that the complete repo has been received.
 
-Readers MUST reject the entire archive on a parse error, non-canonical metadata, an exceeded length limit, a duplicate or out-of-order key, a MAC mismatch, or a digest mismatch.
+Readers MUST reject the entire archive on a parse error, non-canonical metadata, a duplicate or out-of-order key, a MAC mismatch, or a digest mismatch.
+
+#### Archive limits
+
+As an operational best practice, the STAR profiles in this proposal (`atproto-space-repo` and [`atproto-space-meta`](#space-meta-archive)) observe the following size limits, which may be raised over time:
+
+- Metadata: 64 KiB (65,536 bytes)
+- Each key: 4 KiB (4,096 bytes)
+- Each value: 1 MiB (1,048,576 bytes)
+
+These are overall caps, separate from the syntax rules for keys and values. A valid record path, for example, is well under 4 KiB. Readers may reject an archive that exceeds them.
 
 ## Sync
 
@@ -586,6 +602,8 @@ The writer set is a simple fetch and carries no commit or history. It enumerates
 
 The writer set is what the authority *claims*, and is not itself authoritative for any individual repo. It is current as far as the authority's notifications have kept it. A listed account's repo host is the source of truth for whether that repo actually holds data. A syncer treats the writer set as the starting point for discovery and confirms each repo by syncing it directly from its host.
 
+The authority can drop an account from the writer set if that account loses write access. This can be explicitly requested with `com.atproto.space.removeWriter`. A removed account can be re-added to the writer set later if they make an authorized write to the space.
+
 ## Space deletion
 
 A space may be deleted by its authority. The authority stops issuing credentials for the space and deletes all records in its own repo in the space.
@@ -600,7 +618,65 @@ If the space authority's account is deleted, all spaces under that authority are
 
 Members' repo hosts are not notified on deletion. A member's records are the member's own data, and deletion of the space does not entitle the authority to delete all data in it. The records simply become unreadable to everyone but the member's own account. The space's deletion may be surfaced by the application which can aid the user in cleaning up no longer used data.
 
-An authority MAY recreate a deleted space with the same space type and `skey`. If a member still has records under that space, they become readable again under the recreated space's access policy.
+An authority MAY recreate a deleted space with the same space type and `skey`. If a member still has records under that space, they become readable again under the recreated space's policy.
+
+## Moderation
+
+Moderation of content and behavior in spaces builds on similar mechanisms as the public broadcast protocol: a combination of infrastructure takedowns and labels as a composable annotation layer. Every service in the network is able to, and must, moderate the data it hosts and serves according to its legal requirements, terms of service, and community guidelines.
+
+One obvious difference is that space data is not always public, and therefore a moderation service cannot observe a space it has not been admitted to. A moderation service functions as just another reader. A moderation service must hold a space credential like any other syncer, which means the space authority has admitted it under the same [access control](#access-control) rules.
+
+One basic moderation mechanism which is specific to spaces is that space authorities can exclude individual accounts from participating. For restricted access spaces this includes both reading and writing content; for public-access spaces it only means preventing inclusion in the sync writer set.
+
+The protocol does not specify a universal moderation reporting interface.
+
+### Label Records
+
+Labels on space data are similar to public data labels, but use a different synchronization mechanism.
+
+Space labels are records written into a space repository by the label authority account. Labels on space records must be published into the same space that the subject record is in: labels referencing records across space boundaries must be ignored. Synchronizing services index label records the same as any other space data, and then use the usual atproto label HTTP headers to determine which labels to hydrate in API responses.
+
+The label record type is `com.atproto.label.record` with fields:
+
+- `uri` (string, URI format, required): subject of the label
+- `cid` (string, CID format, optional): version of the subject
+- `val` (string, required): label value, with the same syntax restrictions and best practices as public labels
+- `cts` (string, datetime format, required): "created at" timestamp
+- `exp` (string, datetime format, optional): "expires at" timestamp
+
+Label records are authenticated and contextualized by the repository they appear in. They are not individually signed, and have fewer fields than full label objects. If there are multiple labels with the same `(uri, cid, val)` tuple in the same repository, indexing services should use the most recent label and ignore the rest. They can determine age using the created at timestamp (`cts`).
+
+Labeling services must have their account included in the space's writer set for labels they publish to be synced. Space authorities are implicitly included in the [writer set](#the-sync-boundary-writer-set), and can always publish label records. As a convention, space authorities may publish `!takedown` labels to remove content from their spaces, and synchronizing services and client apps should respect such takedown labels.
+
+Application modalities building on spaces may define declaration records to provide additional context about labels and labeling services. The protocol does not define a universal declaration type.
+
+How label records that reference overall accounts should work is an open question. For now space types may define their own behaviors. The specification may be updated in the future to clarify default behaviors.
+
+Labeling services should not publish regular public labels (using `com.atproto.label.subscribeLabels`) for records that reside in non-public spaces, as this leaks metadata about otherwise-private data.
+
+For now the label record mechanism must only be used with space data. A natural extension of label records would be to use them with public repository data. The details of this have not been specified, and any such records written today may be invalidated or have semantics shifted when specification happens. We strongly recommend holding off on experimentation until this is designed in an interoperable way, possibly when the atproto labeling system is brought to the IETF working group.
+
+### Takedowns
+
+All services in the network are responsible for some degree of infrastructure moderation. Many interventions are possible in theory, but we recommend the following capabilities as a baseline.
+
+Account hosting service operators (eg, PDS):
+
+- account takedown: impacts all spaces and space repositories
+- blob takedown: same mechanism for individual public blobs should work with space blobs
+
+Space repo sync response errors from repo hosts should have the same error names as for public repo sync responses: `RepoTakendown` for takendown accounts, `RepoDeactivated` for temporarily deactivated accounts, etc.
+
+Space host operators (eg, PDS or group host):
+
+- account takedown of space authorities: should impact all spaces
+
+App service operators (aka, AppViews):
+
+- account takedown: should include all public repo data, all space repo data, and any spaces the account is authority of
+- space takedown: ability to take down a specific space from a specific authority
+- content takedown: ability to take down individual pieces of content, eg individual records
+
 
 ## OAuth scopes
 
@@ -656,7 +732,7 @@ This default follows the same dynamic-update semantics as a [permission set](htt
 
 **Space management operations** are governed by `manage`, which takes the same `create`/`update`/`delete` verbs applied to the space itself rather than to its records. `manage` ignores `collection`. It is omitted by default, so an ordinary record-access grant confers no administrative capability.
 
-The protocol does not enumerate what each `manage` verb permits, because space management is implementation-defined (see [`simplespace`](#required-pds-space-management-simplespace)). Each space-management implementation maps the verbs onto its own administrative surface. For example, in `com.atproto.simplespace`, `manage=update` authorizes `com.atproto.simplespace.updateSpace` as well as `putMember` and `removeMember`.
+The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.space.createSpace`, `updateSpace`, `deleteSpace`) as well as any administrative methods the space's [`policy`](#space-policy) defines. For example, on a `memberspace` space, `manage=update` authorizes `updateSpace` as well as `com.atproto.memberspace.putMember` and `removeMember`. `manage=update` also authorizes `com.atproto.space.removeWriter` under every policy.
 
 `manage=create` authorizes creating a space of the given `spaceType` under the given authority. It concerns a space that does not yet exist, so scoping it to a concrete `skey` is unusual. It is typically granted with `skey=*` ("this app may create spaces of this type").
 
@@ -724,6 +800,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 |---|---|---|---|---|
 | `getSpaceCredential` | host | procedure | none (delegation token and client attestation included in request body) | Request a space credential. |
 | `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `data`. |
+| `removeWriter` | host | procedure | OAuth (`manage=update`) | Remove an account from a space's [writer set](#the-sync-boundary-writer-set). |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
 | `getBlob` | repo | query | OAuth / space credential | Fetch a blob by CID. |
@@ -736,70 +813,178 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `putRecord` | pds | procedure | OAuth | Create or update a record. |
 | `deleteRecord` | pds | procedure | OAuth | Delete a record. |
 | `applyWrites` | pds | procedure | OAuth | Apply a batch of creates, updates, and deletes to one repo atomically. |
-| `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in. |
+| `clearRecords` | pds | procedure | OAuth | Delete every record in the caller's repo in the specified space. |
+| `importRepo` | pds | procedure | OAuth (`create` on every collection in the archive) | Import a space repo from a [STAR archive](#repo-serialization) during [account migration](#account-migration). |
+| `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in or is the authority of. |
+| `createSpace` | pds | procedure | OAuth (`manage=create`) | Create a space with a given [`policy`](#space-policy); caller becomes the authority. |
+| `updateSpace` | pds | procedure | OAuth (`manage=update`) | Replace a space's [`policy`](#space-policy). |
+| `deleteSpace` | pds | procedure | OAuth (`manage=delete`) | Delete a space. |
+| `getSpace` | host | query | OAuth `read_self` | Describe a space: its identity and current [`policy`](#space-policy). |
+| `exportSpaceMeta` | host | query | OAuth `read_self` | Download a space's host-side state as a [space meta archive](#space-meta-archive). |
+| `importSpaceMeta` | pds | procedure | OAuth (`manage=create` and `manage=update`) | Import a space from a [space meta archive](#space-meta-archive) during [account migration](#account-migration). |
 | `registerNotify` | host | procedure | space credential | Register a service to be notified of writes for the whole space. |
 | `unregisterNotify` | host | procedure | space credential | Withdraw a `registerNotify` registration. |
 | `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `data`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
 | `notifySpaceDeleted` | syncer | procedure | service auth | Notify that a space was deleted and its data should be dropped. Sent by the authority to the syncers registered for the space. |
 | `notifyCredentialRevoked` | repo | procedure | service auth | Notify a repo host that the authority has revoked one or more space credentials, identified by `jti`. |
 
-## Required PDS space management: `simplespace`
+## Space policy
 
-The protocol does not specify how spaces are created, how an authority decides who may read them, or which writers it tracks and forwards notifications for. Those are the concern of each space-management implementation, which sits above the protocol and is identified by its own lexicon namespace.
+The protocol does not specify how a space is configured, how an authority decides who may read it, or which writers it tracks and forwards notifications for. Those are the concern of the space's **policy**.
 
-`com.atproto.simplespace` is the space-management implementation that every PDS MUST support. It gives applications a baseline that is available on every account's PDS to build against. `simplespace` spaces are anchored on a user's own DID and governed by an explicit member list (or the `public` and `managing-app` policies described below).
+Each policy defines a `policy` object, identified by its `$type`, that configures a space under that policy.
 
-`simplespace` is neither the only permitted implementation nor a privileged one. It is simply the one that PDSs are required to support. Other space types may define their own management implementations and are full protocol participants, but they are hosted on bespoke space services rather than on the PDS.
+```json
+{
+  "$type": "com.atproto.memberspace.policy",
+  "publicRead": false,
+  "publicWrite": false
+}
+```
 
-The management procedures are called with an OAuth credential with the relevant `manage` scope. The read queries require only read access: `getSpace` accepts an OAuth `read_self` grant or a space credential, and `listMembers` accepts a `read_self` grant.
+A space is created, updated, and deleted through a small set of policy-agnostic methods under `com.atproto.space`. Both `createSpace` and `updateSpace` take the full `policy` object, including its configuration, and MUST fail with an `UnsupportedPolicy` error if the host does not implement the requested policy. `updateSpace` replaces the `policy` object wholesale. If the new policy has the same `$type` as the current one, this is a configuration change.
 
-| Method | Type | Description |
-|---|---|---|
-| `createSpace` | procedure | Create a space (caller becomes the authority) |
-| `updateSpace` | procedure | Update config (more details below) |
-| `deleteSpace` | procedure | Delete the space (see [Space deletion](#space-deletion)). |
-| `getSpace` | query | Describe a space and its configuration. |
-| `putMember` | procedure | Add a member (by DID) or update their read and write access. |
-| `removeMember` | procedure | Remove a member (by DID). |
-| `listMembers` | query | List the current members of a space and their read and write access. |
+If the `$type` differs, the space migrates to a new policy. Generally, state from the previous policy (such as a `memberspace` member list) should be discarded, and migrating back to the previous policy should not restore it. The space's writer set may be re-evaluated, but applications should not expect this, and applications remain responsible for [removing any writers](#the-sync-boundary-writer-set) from the writer set.
 
-### Configuration
+Each policy defines its own access rules, configuration, and any additional XRPC methods. By convention, these methods live in the same namespace as the policy (e.g. `com.atproto.memberspace.*`).
 
-`simplespace` spaces can be further configured along a few dimensions. This configuration is updated through `updateSpace` and is surfaced through `getSpace`.
+Under every policy, the space authority's own account is always authorized as a user, for both reading and writing, without appearing on a member list or being approved by a managing app.
+
+A PDS MUST support the three [baseline policies](#baseline-policies), so that a management surface is available on every account. It MAY support additional policies.
+
+## Baseline policies
+
+Every PDS MUST support a set of three baseline policies. Each is anchored on the creating user's own DID.
+
+| Policy | How user access is decided |
+|---|---|
+| [`com.atproto.personalspace.policy`](#personalspace) | Only the space authority's own account has access. |
+| [`com.atproto.memberspace.policy`](#memberspace) | Checked against a member list maintained by the PDS. |
+| [`com.atproto.managedspace.policy`](#managedspace) | Delegated to an external managing app for each user. |
+
+These policies are neither the only permitted ones nor privileged ones. They are simply the ones every PDS is required to support. Other policies are full protocol participants, and may be implemented by a PDS or by a bespoke space host.
+
+In each baseline policy, reading and writing are independent permissions. Read access controls whether a space credential is minted. Write access controls whether the authority tracks the writer in `listRepos` and forwards their `notifyWrite` notifications. It does not prevent an account from writing records into its own space repo, and applications remain responsible for deciding which records to include in their views.
+
+### Publishing to readers
+
+By default, a space's policy and member list are visible only to the authority, through `getSpace` and `listMembers`. However, sometimes this configuration should be visible to readers or applications as well.
+
+For this, `memberspace` and `managedspace` carry a `publishPolicy` flag, and `memberspace` also carries `publishMembers`. When a flag is set, the authority's PDS publishes that state as records in the authority's own repo in the space, where they sync to readers like any other record.
+
+| Flag | Collection | Record key | Value |
+|---|---|---|---|
+| `publishPolicy` | `com.atproto.space.policy` | `self` | `policy`: the current policy object |
+| `publishMembers` | `com.atproto.memberspace.member` | the member's DID | `read`, `write` |
+
+The config remains the source of truth for access, and records are a copy. It is the PDS's responsibility to keep the two in sync. For instance, when a client calls `putMember` on a space with a published member list, the PDS should both update the configuration and publish a record in the space. The PDS should reject direct writes of these records through repo CRUD methods, and [`clearRecords`](#repo-lifecycle) leaves them in place in the authority's repo. Since any member is technically capable of writing records of these types to their own repo, readers should only treat them as authoritative in the authority's repo.
+
+Note that even if a member list isn't published, members that have written to the space can still be enumerated through the [writer set](#the-sync-boundary-writer-set).
+
+### `personalspace`
+
+`com.atproto.personalspace.policy` is for data that only its owner should see, such as bookmarks, mutes, or drafts. Only the space authority's own account is authorized to read, and the authority tracks no other writers.
+
+`personalspace` has no configuration fields and defines no methods of its own.
+
+### `memberspace`
+
+`com.atproto.memberspace.policy` governs access via a member list.
 
 | Field | Values | Description |
 |---|---|---|
-| `readPolicy` | `public` \| `member-list` \| `managing-app` | How the authority decides whether to authorize a user to read. |
-| `writePolicy` | `public` \| `member-list` \| `managing-app` | How the authority decides whether to track and forward a user's write notifications. |
-| `appAccess` | open union (`#open` \| `#allowList`) | How the authority decides whether to authorize an _app_. |
-| `managingApp` | service identifier (DID + fragment) | Used as the access check target when either policy is `managing-app`. |
+| `publicRead` | boolean (default false) | Authorize anyone to read, rather than only members. No [delegation token](#delegation-token) is required. |
+| `publicWrite` | boolean (default false) | Track and forward notifications for any user's writes, rather than only members'. |
+| `allowedApps` | array of OAuth client IDs (optional) | The apps the authority authorizes. Any app when omitted. |
+| `publishPolicy` | boolean (default false) | [Publish](#publishing-to-readers) the policy to readers. |
+| `publishMembers` | boolean (default false) | [Publish](#publishing-to-readers) the member list to readers. |
 
-`simplespace` treats reading and writing as independent permissions. Read access controls whether a space credential is minted. Write access controls whether the authority tracks the writer in `listRepos` and forwards their `notifyWrite` notifications. It does not prevent an account from writing records into its own space repo; applications remain responsible for deciding which records to include in their views.
+When `publicRead` is set, the authority does not require a delegation token to read. It issues a space credential to any requester, so an application such as a syncer can read the space without acting on behalf of a user. `allowedApps` still applies, so if it is set, a client attestation from a listed app is required. When `publicWrite` is set, the authority tracks and forwards notifications for any user's writes.
 
-Each member-list entry carries required `read` and `write` booleans. `putMember` replaces both values together.
+Otherwise, the authority authorizes a user whose member-list entry has the corresponding `read` or `write` boolean set to true. For reads, the user is identified by a delegation token.
 
-A user must be authorized by `readPolicy` **and** their app by `appAccess` for a credential to be minted. `appAccess` does not apply to writes because write notifications authenticate the writer's repo host rather than the client application that originated the write.
+When `allowedApps` is omitted, any application may read the space, and no [client attestation](#client-attestation) is required, so public clients work. When set, the authority mints a credential only for a listed app, evaluated against the **attested** `client_id` (the `iss` of the verified client attestation). `allowedApps` does not apply to writes, because write notifications authenticate the writer's repo host rather than the client application that originated the write.
 
-The two policy fields and `appAccess` are open unions at the schema layer. A host MUST reject values it does not implement at `createSpace` / `updateSpace` time.
+The member list is managed through `memberspace`'s own methods:
 
-**Policy** decides per-user authorization:
-- `member-list` (authorize) : authorize a member when the corresponding `read` or `write` boolean is true.
-- `public`: authorize any user.
-- `managing-app`: ask `managingApp` whether to authorize the user via [`checkUserAccess`](#the-managing-app) below. This enables dynamic policies (e.g. follower-gating) without the PDS maintaining a list.
+| Method | Type | Auth | Description |
+|---|---|---|---|
+| `putMember` | procedure | OAuth (`manage=update`) | Add a member (by DID) or replace their `read` and `write` access. |
+| `removeMember` | procedure | OAuth (`manage=update`) | Remove a member (by DID). |
+| `listMembers` | query | OAuth (`read_self`) | List the current members of the space and their `read` and `write` access. |
 
-`readPolicy` and `writePolicy` each use the same policy variants and default to `member-list`.
+Each member-list entry carries required `read` and `write` booleans, and `putMember` replaces both together. The member list is not part of the `policy` object. It persists across configuration changes and is discarded on [migration](#space-policy) to a different policy.
 
-**App access** decides per-app authorization. It is an open union with two current variants:
-- `#open` (default): any application may access the space. No [client attestation](#client-attestation) is required, so public clients work.
-- `#allowList`: only the apps named in `allowed` may access the space. The authority evaluates the list against the **attested** `client_id` (the `iss` of the verified client attestation), so it is enforceable rather than advisory.
+When `removeMember` removes a member, or `putMember` revokes a member's write access, the authority SHOULD also remove that account from the writer set. Writers tracked under `publicWrite` are not on the member list, but can be explicitly removed with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set). While `publicWrite` is set, a removed writer is tracked again as soon as it writes.
 
-### The managing app
+### `managedspace`
 
-When either policy is `managing-app`, the space authority defers that decision to the space's `managingApp` by calling `com.atproto.simplespace.checkUserAccess`.
+`com.atproto.managedspace.policy` defers each user access decision to an external **managing app**. This enables dynamic policies (e.g. follower-gating or paid subscriptions) without the PDS maintaining a materialized member list.
 
-Unlike the other `simplespace` methods, `checkUserAccess` is served by the `managingApp`, not the PDS. The authority calls it with itself as `iss` and the `managingApp`'s service identifier as `aud`, so the app can verify the call genuinely originates from the space's authority. It passes the space, the requesting user, an `access` field set to `read` or `write`, and the requesting client (the **attested** `client_id`, if any). No client is provided for a write check because `notifyWrite` does not identify the application that originated the write.
+| Field | Values | Description |
+|---|---|---|
+| `managingApp` | service identifier (DID + fragment) | Required. The service the authority asks whether to authorize a user. |
+| `publishPolicy` | boolean (default false) | [Publish](#publishing-to-readers) the policy to readers. |
 
-The app evaluates the request against whatever application-layer state it maintains (e.g. follower graphs or paid-subscription status) and returns its decision. For reads, the authority mints the credential only if the app authorizes and applies `appAccess` as usual. For writes, it tracks the repo and forwards its notifications only if the app authorizes.
+| Method | Type | Auth | Description |
+|---|---|---|---|
+| `checkUserAccess` | query | service auth (from the space authority) | Served by the `managingApp` (not the PDS). Asks whether to authorize a user to read or write. |
+
+The authority passes the space, the user, the `access` being checked (`read` or `write`), and for reads, the attested `client_id` if one was presented. Write checks carry no client, since `notifyWrite` does not identify the originating app. Because reads and writes are checked separately, the app can express mixed arrangements, such as a paid newsletter that subscribers may read but only the authority writes to.
+
+Writers approved by the managing app can be explicitly removed from the writer set with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set).
+
+## Account migration
+
+Account migration for space data works similarly to migrating a public repository. The main difference is that a user has many space repos. Each space repository can be exported from the old host through `space.getRepo` and imported to the new host through `space.importRepo`. The new host may give an imported repo a new `rev`, while its commit `data` is unchanged. As well, the new host generates its own [KEM key](#kem-key) and publishes it in the account's DID document.
+
+For spaces that the account is the authority of, the PDS also holds some configuration state that isn't necessarily published as a record in a space repo (e.g. the space's policy or member list). This is exported and imported as a [space meta archive](#space-meta-archive).
+
+On top of the usual account migration flow:
+
+1. Enumerate the account's spaces on the old host with `listSpaces`.
+2. For each space the account is the authority of, download its [space meta archive](#space-meta-archive) with `exportSpaceMeta` and upload it to the new host with `importSpaceMeta`. This must come before importing the account's own repo in that space.
+3. For each space the account holds a repo in, download its repo with `getRepo` and upload it with `importRepo`, then copy over the blobs it references (via `listBlobs`).
+
+Each import requires a `space:` scope that covers the writes it makes. An import that includes a record the scope does not cover is rejected as a whole, not imported in part. Migrating all of an account's spaces therefore takes very broad scopes.
+
+An account taken down by its host should still be able to export its spaces through `listSpaces`, `exportSpaceMeta`, `getRepo`, `listBlobs`, and `getBlob`, just as it can export its public repo, so that it can migrate away.
+
+Notification registrations, credential revocations, and deleted space tombstones are not carried over on migration.
+
+### Space meta archive
+
+A space meta archive is a [STAR file](#repo-serialization) with the `atproto-space-meta` profile. It holds an authority's state for a single space.
+
+The metadata simply contains the space ref:
+```json
+{
+  "$type": "atproto-space-meta",
+  "ver": 1,
+  "space": "at://did:example:forum/space/com.atmoboards.forum/general"
+}
+```
+
+The metadata and all values are [DRISL](https://dasl.ing/drisl.html)-encoded and subject to the same [archive limits](#archive-limits) as the `atproto-space-repo` STAR profile.
+
+The body has three sections, in this order:
+
+1. **Policy.** A single `policy` key, whose value is the space's policy object.
+2. **Policy state.** Any additional config relating to the policy. Keys are structured like repository keys (e.g. `{NSID}/{rkey}`) and the policy defines their values.
+3. **Writers.** One `writer/{did}` key per account in the writer set. Each value carries all required information to support `listRepos` after migration, including `rev`, `data`, and `spaceRev`.
+
+Within each section, keys MUST be in strict lexicographic order of the key bytes, with no duplicates.
+
+```
+policy                                             → { "$type": "com.atproto.memberspace.policy", "publicRead": false, ... }
+com.atproto.memberspace.member/did:example:alice   → { "$type": "com.atproto.memberspace.member", "read": true, "write": true }
+com.atproto.memberspace.member/did:example:bob     → { "$type": "com.atproto.memberspace.member", "read": true, "write": true }
+com.atproto.memberspace.member/did:example:carol   → { "$type": "com.atproto.memberspace.member", "read": true, "write": false }
+writer/did:example:alice                           → { "rev": "3mwdj...", "data": 0x..., "spaceRev": "3mwdk..." }
+writer/did:example:bob                             → { "rev": "3mwdj...", "data": 0x..., "spaceRev": "3mwdk..." }
+```
+
+The importing host MUST reject the archive on a parse error, a missing, duplicate, or out-of-order key, or a policy it doesn't implement (`UnsupportedPolicy`). It MUST also reject a policy state key it doesn't recognize, rather than silently dropping access state.
 
 ## Considerations
 
@@ -817,18 +1002,6 @@ Access may be described through other application semantics as well. For instanc
 
 A space that wants to be served by feeds and other third-party services that are added as "service accounts" to the space should publish its access rules as records.
 
-### Moderation
-
-Moderation in public broadcast atproto is handled at various levels, including labeling and infrastructure takedowns. Every service in the network is able to, and must, moderate the data it hosts and serves according to its legal requirements, terms of service, and community guidelines. In addition, moderation services may publish public labels that applications and infrastructure providers can then act on.
-
-The same moderation model applies to atproto spaces, with the obvious difference that the data is not open, and therefore a moderation service cannot observe a space it has not been admitted to. A moderation service functions as just another reader. To label content in a space, a moderation service must hold a space credential like any other syncer, which means the space authority has admitted it under the same [access control](#access-control) rules.
-
-A moderation service should not publish public labels for records that reside in spaces, as this leaks metadata about otherwise-private data. The public `com.atproto.label.subscribeLabels` endpoint is therefore a poor fit here. Instead, labelers may publish labels as records in a repo within the relevant space, keeping the labels inside the same access boundary as the content they describe.
-
-At the infrastructure level, familiar tools and processes apply. Each participant retains authority over their own repo and can delete their own records. A repo host can take down accounts or refuse to serve repos that it hosts. An application can filter records from the views that it serves.
-
-A space authority has an additional lever with no public analogue. Because reading requires a credential it issues, it can decline to issue one to a user and thereby cut off read access, or stop issuing credentials for the space entirely (see [space deletion](#space-deletion)). Some spaces may also include records with application-level semantics for restricting writes from moderated users.
-
 ### Scaling
 
 The scaling story is expected to be similar to the public broadcast protocol. Data is partitioned per user across many hosts, no single node (at the hosting layer) holds an entire space, and applications may choose how much and which data they wish to index.
@@ -845,10 +1018,12 @@ Finally, and relatedly, the sync APIs are not open to the public, so resource ab
 
 An account's participation in a space is tied to the same DID as its public atproto identity. The lifecycle events that already exist, migration, key rotation, deactivation, and deletion, therefore all function the same way in the context of atproto spaces.
 
-**Migration.** Moving a space repo between hosts functions the same as migrating a public repository. The main difference is that a user has many space repos rather than one, so account migration flows will need to enumerate and track all of an account's space repos (via `listSpaces`) and the blobs associated with them (via `listBlobs`). Since the repo host holds the KEM private key, the new host publishes its own `#atproto_kem` key as part of migration.
+**Migration.** Moving space repos between hosts works much like migrating a public repository, with some extra state to carry when the account is a space authority. See [Account migration](#account-migration).
 
 **Key rotation.** The account rotates its KEM key by replacing `#atproto_kem` in its DID document. Requests using the old key may fail MAC verification and need to [retry](#authenticity-headers). This does not change repo hashes or revisions.
 
 **Deactivation & deletion.** Deactivation and deletion function exactly as they do for [public broadcast](https://atproto.com/specs/account#hosting-status). If an account is deleted, downstream services are expected to delete all data associated with the account, whether public or in spaces. If an account is deactivated, downstream services are expected to stop serving all data associated with it, whether public or in spaces.
+
+If a space authority is taken down or deactivated, its spaces are suspended. The space host answers `getSpaceCredential` and `listWriters` with `RepoTakendown` or `RepoDeactivated`. Credentials already issued remain valid until they expire, members' repos are unaffected, and the spaces resume if the account is reinstated. Unlike [space deletion](#space-deletion), this is not a signal for syncers to drop the space's data.
 
 **Identity & account events.** Applications currently learn about changes to an account's status or identity (such as its signing key, KEM key, and handle) via events on the firehose (`com.atproto.sync.subscribeRepos`). These same account updates apply to space repos in exactly the same manner. This means an application that syncs only space repos, and no public repositories, still needs to subscribe to a firehose to receive `#account` and `#identity` events. Future work may include an additional subscription endpoint that broadcasts only those two event types without the full stream of public repository commits.
