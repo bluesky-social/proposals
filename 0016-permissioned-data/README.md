@@ -655,6 +655,8 @@ Account hosting service operators (eg, PDS):
 - account takedown: impacts all spaces and space repositories
 - blob takedown: same mechanism for individual public blobs should work with space blobs
 
+Space repo sync response errors from repo hosts should have the same error names as for public repo sync responses: `RepoTakendown` for takendown accounts, `RepoDeactivated` for temporarily deactivated accounts, etc.
+
 Space host operators (eg, PDS or group host):
 
 - account takedown of space authorities: should impact all spaces
