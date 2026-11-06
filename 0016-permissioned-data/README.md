@@ -327,7 +327,7 @@ Steps 1–2 may be skipped when no delegation token is needed.
 4. The authority verifies what it received and, on authorization, returns a space credential bound to the supplied key.
 5. The application reads the repo from each member's repo host with the credential and an [HTTP Message Signature](#presenting-a-space-credential) addressed to the repo owner DID.
 
-An application serving several users of a space does not necessarily need to maintain a space credential for each user. It may obtain its credential using any one user's session. If the space requires a delegation token and the application loses all OAuth sessions for that space, it can no longer renew the credential and loses access.
+An application serving several users of a space does not necessarily need to maintain a space credential for each user. It may obtain its credential using any one user's session. If the space requires a delegation token and the application loses all OAuth sessions for that space, it can no longer renew the credential and loses access. How an application decides which of its users may see a space is discussed under [Access control in applications](#access-control-in-applications).
 
 ### Credential expiration and revocation
 
@@ -989,6 +989,26 @@ The importing host MUST reject the archive on a parse error, a missing, duplicat
 ## Considerations
 
 This section is non-normative. It discusses how atproto spaces interact with concerns that span the whole protocol. The short answer to most of them is that they behave much like public broadcast, because they deliberately have the same shape: DID-based authority, per-user repositories, lexicon-typed records, and applications that crawl repos to build views.
+
+### Access control in applications
+
+Application services are responsible for appropriately restricting access to space data that they serve.
+
+Applications may hold OAuth sessions for multiple accounts. While a [space credential](#space-credential) lets an application sync a space, it does not tell it which of its users should see that space. The protocol is very flexible about how access is determined, which means there is no universal framework or set of rules. Applications must understand the space type and synchronize any supporting data, which might include per-space configuration, public data records, or even off-protocol information. This includes determining whether a space is fully public (no access restrictions) and detecting changes to access controls.
+
+For example, a [`memberspace`](#memberspace) may publish its membership records. Or a space may grant access to accounts that the space authority follows. This requires gating actual space access via a `managedspace`, but the syncing application is also responsible for understanding and enforcing this application semantic in the views that it serves.
+
+A space that wants to be served by feeds and other third-party services that are added as "service accounts" to the space should publish its access rules as records.
+
+There are some protocol-level access rules that apply to all space data, and applications must respect them:
+
+- author account status: as with public atproto repositories, space data should not be displayed or distributed for inactive accounts
+- space authority account status: similarly, inactivation of an account impacts all data from all accounts in spaces under their authority
+- deleted data records: same as with public repo records
+- space lifecycle status: syncers are notified for space deletion events
+- removal of author from the space's writer set
+
+The space sync mechanism itself does not notify application services of account status changes. Applications are responsible for synchronizing that separately.
 
 ### Scaling
 
