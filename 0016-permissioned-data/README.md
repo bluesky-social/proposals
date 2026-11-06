@@ -269,11 +269,12 @@ The application requests a space credential by calling `getSpaceCredential` on t
   "space": "at://did:example:space_did/space/com.example.space_type/space_key",
   "credentialKid": "did:key:zDna...", // required, P-256 did:key to bind the credential to
   "delegationToken": "eyJ...", // optional, when the space requires it
-  "clientAttestation": "eyJ..." // optional, when the space requires it
+  "clientAttestation": "eyJ...", // optional, when the space requires it
+  "notifyService": "did:example:syncer#space_syncer" // optional, to register for write notifications
 }
 ```
 
-On authorization, the space host uses `credentialKid` as the space credential's `cnf.kid`.
+On authorization, the space host uses `credentialKid` as the space credential's `cnf.kid`. If `notifyService` is included, the space host also registers that service for [write notifications](#write-notifications).
 
 #### Presenting a space credential
 
@@ -582,7 +583,9 @@ A syncer may discover which blobs a repo references through `com.atproto.space.l
 
 Write notifications inform syncers that a repo has been updated, so they can pull promptly instead of continuously polling for updates. A write notification contains no record data, and states only that a given repo in a given space has reached a new `rev` and `data`.
 
-Space hosts receive write notifications from repo hosts, and sequence updates over the entire space. A syncer subscribes to notifications by calling `com.atproto.space.registerNotify` on the space host (using a space credential for authorization) and subsequently receives notifications for all repos. Registrations have a fixed time duration, indicated by an expiration time in the API response body. A registration can be withdrawn with `com.atproto.space.unregisterNotify`, or simply left to expire.
+Space hosts receive write notifications from repo hosts, and sequence updates over the entire space. A syncer registers for notifications when [requesting a space credential](#requesting-a-space-credential), and subsequently receives notifications for all repos in the space and for the space's [deletion](#space-deletion). Each credential request renews the registration, which lasts until that credential expires plus one more notification. A syncer that keeps its credential fresh stays registered. One that lets its credential lapse is woken by the next write, and renews its registration when it fetches a new credential to sync that write. 
+
+To unregister, a syncer either stops renewing, or responds to a notification with a permanent HTTP error to unregister immediately. The space host should also drop a registration early if it [revokes](#credential-expiration-and-revocation) the credential that last renewed it, or refuses a credential request that carries it. 
 
 When an account writes to a space repo, their PDS sends a `com.atproto.space.notifyWrite` containing the updated repo's `rev` and `data` to the space host associated with the space authority (unless the authority is the repo account itself). Notification between repo hosts and space hosts is automatic and does not require registration. The space host should reject write notifications for repos which are not authorized to write to the space. Repo hosts are responsible for reliably updating the space host with the latest repo state, and should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors. Notification API calls are authenticated using service auth. The space host is not expected to verify the integrity or authenticity of the repo `data`. Similar to public repository synchronization, the repo revision (`rev`) is a timestamp identifier (TID) which must increase monotonically (updates with a lower or equal revision should be ignored), and must not correspond to a future timestamp (beyond a short clock skew window).
 
@@ -608,11 +611,11 @@ The authority can drop an account from the writer set if that account loses writ
 
 A space may be deleted by its authority. The authority stops issuing credentials for the space and deletes all records in its own repo in the space.
 
-The authority then notifies the syncers registered for the space with `com.atproto.space.notifySpaceDeleted`. The authority is responsible for reliably delivering this notification to each registered syncer, with the same rigor as a repo host delivering write notifications to the space host: it should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors.
+The authority then notifies every syncer [registered](#write-notifications) for the space with `com.atproto.space.notifySpaceDeleted`, including lapsed registrations still awaiting their final notification. The authority is responsible for reliably delivering this notification to each registered syncer, with the same rigor as a repo host delivering write notifications to the space host: it should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors.
 
 A **syncer** should delete every copy of the space's data it holds, both the repos it pulled and any derived state, as it is no longer authorized to retain them. A syncer that misses the notification learns the space is gone on its next credential renewal. The authority should answer `getSpaceCredential` for a deleted space with an explicit `SpaceDeleted` error. A renewal that fails for any other reason says nothing about the space, and the syncer retains its copy.
 
-To support this, the authority SHOULD retain a record of the deletion until each syncer that was registered for notifications at the time of deletion has either been successfully notified or seen its registration expire. This gives any syncer that missed the notification the opportunity to renew its credential and learn of the deletion.
+To support this, the authority SHOULD retain a record of the deletion until each syncer that was registered for notifications at the time of deletion has either been successfully notified or had its registration dropped. This gives any syncer that missed the notification the opportunity to renew its credential and learn of the deletion.
 
 If the space authority's account is deleted, all spaces under that authority are deleted with it. Syncers learn of this through the authority's account events, as with any other [account deletion](#account-lifecycle).
 
@@ -740,7 +743,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 
 | Method | Role | Type | Auth | Description |
 |---|---|---|---|---|
-| `getSpaceCredential` | host | procedure | none (delegation token and client attestation included in request body) | Request a space credential. |
+| `getSpaceCredential` | host | procedure | none (delegation token and client attestation included in request body) | Request a space credential, optionally registering for write notifications. |
 | `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `data`. |
 | `removeWriter` | host | procedure | OAuth (`manage=update`) | Remove an account from a space's [writer set](#the-sync-boundary-writer-set). |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
@@ -764,8 +767,6 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `getSpace` | host | query | OAuth `read_self` | Describe a space: its identity and current [`policy`](#space-policy). |
 | `exportSpaceMeta` | host | query | OAuth `read_self` | Download a space's host-side state as a [space meta archive](#space-meta-archive). |
 | `importSpaceMeta` | pds | procedure | OAuth (`manage=create` and `manage=update`) | Import a space from a [space meta archive](#space-meta-archive) during [account migration](#account-migration). |
-| `registerNotify` | host | procedure | space credential | Register a service to be notified of writes for the whole space. |
-| `unregisterNotify` | host | procedure | space credential | Withdraw a `registerNotify` registration. |
 | `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `data`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
 | `notifySpaceDeleted` | syncer | procedure | service auth | Notify that a space was deleted and its data should be dropped. Sent by the authority to the syncers registered for the space. |
 | `notifyCredentialRevoked` | repo | procedure | service auth | Notify a repo host that the authority has revoked one or more space credentials, identified by `jti`. |
@@ -892,7 +893,7 @@ Each import requires a `space:` scope that covers the writes it makes. An import
 
 An account taken down by its host should still be able to export its spaces through `listSpaces`, `exportSpaceMeta`, `getRepo`, `listBlobs`, and `getBlob`, just as it can export its public repo, so that it can migrate away.
 
-Notification registrations, credential revocations, and deleted space tombstones are not carried over on migration.
+Notification registrations, credential revocations, and deleted space tombstones are not carried over on migration. A syncer that sees an authority's `#atproto_pds` endpoint change should fetch a new credential from the new host, which re-registers it.
 
 ### Space meta archive
 
