@@ -272,7 +272,7 @@ The application requests a space credential by calling `getSpaceCredential` on t
   "clientAttestation": "eyJ...", // optional, when the space requires it
   "notify": { // optional, to register for write notifications
     "endpoint": "https://syncer.example.com",
-    "token": "..."
+    "token": "kq7Vx2Rj9mPzL4wN8tBcY1hF6sDgE3aQoU5iZ0nKpWe"
   }
 }
 ```
