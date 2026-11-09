@@ -270,11 +270,14 @@ The application requests a space credential by calling `getSpaceCredential` on t
   "credentialKid": "did:key:zDna...", // required, P-256 did:key to bind the credential to
   "delegationToken": "eyJ...", // optional, when the space requires it
   "clientAttestation": "eyJ...", // optional, when the space requires it
-  "notifyService": "did:example:syncer#space_syncer" // optional, to register for write notifications
+  "notify": { // optional, to register for write notifications
+    "endpoint": "https://syncer.example.com",
+    "token": "..."
+  }
 }
 ```
 
-On authorization, the space host uses `credentialKid` as the space credential's `cnf.kid`. If `notifyService` is included, the space host also registers that service for [write notifications](#write-notifications).
+On authorization, the space host uses `credentialKid` as the space credential's `cnf.kid`. If `notify` is included, the space host also registers that endpoint for [write notifications](#write-notifications).
 
 #### Presenting a space credential
 
@@ -583,11 +586,15 @@ A syncer may discover which blobs a repo references through `com.atproto.space.l
 
 Write notifications inform syncers that a repo has been updated, so they can pull promptly instead of continuously polling for updates. A write notification contains no record data, and states only that a given repo in a given space has reached a new `rev` and `data`.
 
-Space hosts receive write notifications from repo hosts, and sequence updates over the entire space. A syncer registers for notifications when [requesting a space credential](#requesting-a-space-credential), and subsequently receives notifications for all repos in the space and for the space's [deletion](#space-deletion). Each credential request renews the registration, which lasts until that credential expires plus one more notification. A syncer that keeps its credential fresh stays registered. One that lets its credential lapse is woken by the next write, and renews its registration when it fetches a new credential to sync that write. 
+Space hosts receive write notifications from repo hosts, and sequence updates over the entire space. A syncer registers for notifications when [requesting a space credential](#requesting-a-space-credential) by including a `notify` object with an `endpoint` and a `token`, and subsequently receives notifications for all repos in the space and for the space's [deletion](#space-deletion). The `endpoint` is a base HTTPS url that XRPC methods can be called against. The space host calls notification methods such as`notifyWrite` and `notifySpaceDeleted` on that endpoint, presenting the token as a bearer token.
+
+Each credential request for a given endpoint renews that endpoint's registration and replaces its token with the newly provided value. The registration lasts until that credential expires plus one more notification. A syncer that keeps its credential fresh stays registered. One that lets its credential lapse is woken by the next write, and renews its registration when it fetches a new credential to sync that write. 
+
+The token is not required to change on each credential request. It is an opaque token and may be randomly generated or derived statelessly from (e.g. from the space ref + the time). The syncer should use a different token for each space and reject requests with a token it doesn't recognize.
 
 To unregister, a syncer either stops renewing, or responds to a notification with a permanent HTTP error to unregister immediately. The space host should also drop a registration early if it [revokes](#credential-expiration-and-revocation) the credential that last renewed it, or refuses a credential request that carries it. 
 
-When an account writes to a space repo, their PDS sends a `com.atproto.space.notifyWrite` containing the updated repo's `rev` and `data` to the space host associated with the space authority (unless the authority is the repo account itself). Notification between repo hosts and space hosts is automatic and does not require registration. The space host should reject write notifications for repos which are not authorized to write to the space. Repo hosts are responsible for reliably updating the space host with the latest repo state, and should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors. Notification API calls are authenticated using service auth. The space host is not expected to verify the integrity or authenticity of the repo `data`. Similar to public repository synchronization, the repo revision (`rev`) is a timestamp identifier (TID) which must increase monotonically (updates with a lower or equal revision should be ignored), and must not correspond to a future timestamp (beyond a short clock skew window).
+When an account writes to a space repo, their PDS sends a `com.atproto.space.notifyWrite` containing the updated repo's `rev` and `data` to the space host associated with the space authority (unless the authority is the repo account itself). Notification between repo hosts and space hosts is automatic and does not require registration. The space host should reject write notifications for repos which are not authorized to write to the space. Repo hosts are responsible for reliably updating the space host with the latest repo state, and should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors. These calls are authenticated using service auth. The space host is not expected to verify the integrity or authenticity of the repo `data`. Similar to public repository synchronization, the repo revision (`rev`) is a timestamp identifier (TID) which must increase monotonically (updates with a lower or equal revision should be ignored), and must not correspond to a future timestamp (beyond a short clock skew window).
 
 When the space host receives a valid write notification, it updates a local table tracking the state of each repo in the space, and then forwards notifications to all of the currently registered syncers. The space host is only responsible for reasonable-effort delivery of this synchronization hop. The space host sequences updates with a separate revision (TID) for the overall space, and indicates the current and previous space revision in each forwarded write notification. Syncers can detect missed notifications from a gap in space revisions, and request a list of all repos in the space updated "since" an earlier space revision using the `com.atproto.space.listRepos` endpoint. Syncers can use the same endpoint to ensure synchronization state after any duration of downtime.
 
@@ -767,8 +774,8 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `getSpace` | host | query | OAuth `read_self` | Describe a space: its identity and current [`policy`](#space-policy). |
 | `exportSpaceMeta` | host | query | OAuth `read_self` | Download a space's host-side state as a [space meta archive](#space-meta-archive). |
 | `importSpaceMeta` | pds | procedure | OAuth (`manage=create` and `manage=update`) | Import a space from a [space meta archive](#space-meta-archive) during [account migration](#account-migration). |
-| `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `data`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
-| `notifySpaceDeleted` | syncer | procedure | service auth | Notify that a space was deleted and its data should be dropped. Sent by the authority to the syncers registered for the space. |
+| `notifyWrite` | syncer/host | procedure | service auth (repo host to space host) / notify token (space host to syncer) | Notify that a repo advanced, with its current `rev` and `data`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
+| `notifySpaceDeleted` | syncer | procedure | notify token | Notify that a space was deleted and its data should be dropped. Sent by the authority to the syncers registered for the space. |
 | `notifyCredentialRevoked` | repo | procedure | service auth | Notify a repo host that the authority has revoked one or more space credentials, identified by `jti`. |
 
 ## Space policy
