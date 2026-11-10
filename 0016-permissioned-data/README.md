@@ -168,7 +168,7 @@ The construction uses [HTTP Message Signatures](https://www.rfc-editor.org/rfc/r
 
 The application should generate a new keypair each time it requests a new space credential. The private key need only be retained for the lifetime of the space credential and should be discarded when the credential expires or is deleted.
 
-Signatures use the `ecdsa-p256-sha256` algorithm defined by [RFC 9421 Section 3.3.4](https://www.rfc-editor.org/rfc/rfc9421#section-3.3.4). The signature value is the 64-octet concatenation `r || s`, with each integer encoded as a zero-padded 32-octet big-endian value. This is the same binary encoding used by atproto commit signatures. Unlike atproto commit signatures, low-S normalization is not required, and verifiers MUST accept both low-S and high-S signatures.
+Signatures use the `ecdsa-p256-sha256` algorithm defined by [RFC 9421 Section 3.3.4](https://www.rfc-editor.org/rfc/rfc9421#section-3.3.4). If an `alg` parameter is present, it MUST be `ecdsa-p256-sha256`. The signature value is the 64-octet concatenation `r || s`, with each integer encoded as a zero-padded 32-octet big-endian value. This is the same binary encoding used by atproto commit signatures. Unlike atproto commit signatures, low-S normalization is not required, and verifiers MUST accept both low-S and high-S signatures.
 
 ### Delegation token
 
@@ -447,7 +447,7 @@ shared_secret = HKDF-SHA256(input, salt="", info=info, length=32)
 
 #### Requesting a MAC
 
-Methods that return a [commit](#commit-mac) or [record](#record-mac) require a MAC when called with a space credential. MACs are [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) using the `hmac-sha256` algorithm defined by [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421#section-3.3.3), keyed with `shared_secret`.
+Methods that return a [commit](#commit-mac) or [record](#record-mac) require a MAC when called with a space credential. MACs are [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) using the `hmac-sha256` algorithm defined by [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421#section-3.3.3), keyed with `shared_secret`. If an `alg` parameter is present, it MUST be `hmac-sha256`.
 
 The syncer requests a MAC with an `Accept-Signature` header:
 
@@ -475,8 +475,6 @@ The syncer checks that the signature's covered components and parameters match i
 `getLatestCommit`, `getRepo`, and `listRepoOps` responses carry a [commit](#space-repos). They use the `atproto-space-repo` profile, which covers an `Atproto-Space-Commit` header containing the commit's fields, as shown above.
 
 The syncer checks that the header matches the commit in the response body, and that `repo` and `space` match the requested repo.
-
-A `listRepoOps` page without a commit has no signature. Its operations are checked when the final page's commit `data` is compared against the syncer's running set hash.
 
 #### Record MAC
 
