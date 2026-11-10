@@ -393,7 +393,7 @@ Atproto roots authority in DIDs rather than network locations. Space repos there
 
 Unlike public broadcast data, permissioned data should not carry proof of authorship that survives a leak outside its access boundary, so space repos do not use signatures. Instead, the syncer and repo host establish an ephemeral shared secret, and the host uses it to compute a MAC (Message Authentication Code) over the commit or record. The syncer checks the MAC with the same secret. Since the syncer could have computed that MAC itself, it is unable to prove anything to anyone else.
 
-MACs are not part of the serialized repo data. They are carried in an HTTP header described [below](#authenticity-headers).
+MACs are not part of the serialized repo data. Instead, the host returns them as [HTTP headers](#requesting-a-mac) on its responses.
 
 #### KEM key
 
@@ -418,11 +418,11 @@ To request a MAC, the syncer:
 2. Generates a new ephemeral P-256 keypair for this request.
 3. Performs ECDH using the new private key and the author's public key.
 4. Derives a 32-byte `shared_secret` from the ECDH result, as shown below.
-5. Keeps `shared_secret` and sends its new public key in the request header's `key_share` field.
+5. Keeps `shared_secret` and sends its new public key as the `keyid` of its [MAC request](#requesting-a-mac).
 
 The syncer generates a new keypair for every request, including retries and each page of a paginated response.
 
-After authorizing the request, the repo host decodes the syncer's public key from `key_share`, performs ECDH using the author's private key, and derives the same `shared_secret`.
+After authorizing the request, the repo host decodes the syncer's public key from `keyid`, performs ECDH using the author's private key, and derives the same `shared_secret`.
 
 Both sides derive `shared_secret` with HKDF-SHA256. The key encoding and HKDF inputs follow [RFC 9180 §4.1](https://www.rfc-editor.org/rfc/rfc9180#section-4.1).
 
@@ -445,56 +445,48 @@ info = uint16be(32) || prefix || "shared_secret" || keys
 shared_secret = HKDF-SHA256(input, salt="", info=info, length=32)
 ```
 
-#### Authenticity headers
+#### Requesting a MAC
 
-Methods that return a [commit](#commit-mac) or [record](#record-mac) require a MAC when called with a space credential. The syncer requests one with an `Atproto-Space-Want-Mac` header. Its value is a [Structured Field Dictionary](https://www.rfc-editor.org/rfc/rfc9651#section-3.2):
+Methods that return a [commit](#commit-mac) or [record](#record-mac) require a MAC when called with a space credential. MACs are [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) using the `hmac-sha256` algorithm defined by [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421#section-3.3.3), keyed with `shared_secret`.
 
-```http
-Atproto-Space-Want-Mac: type="atproto-space-repo", ver=1, key_share="did:key:zDna..."
-```
-
-`key_share` is the syncer's ephemeral P-256 public key as a `did:key`, abbreviated above.
-
-The host returns the 32-byte MAC as a base64 byte sequence in an `Atproto-Space-Mac` response header, and lists the request header in `Vary`:
+The syncer requests a MAC with an `Accept-Signature` header:
 
 ```http
-Atproto-Space-Mac: type="atproto-space-repo", ver=1, mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
-Vary: Atproto-Space-Want-Mac
+Accept-Signature: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";alg="hmac-sha256";tag="atproto-space-repo"
 ```
 
-The fields shown are required. The response's `type` and `ver` match the request's. Missing or malformed headers, unsupported types or versions, and invalid keys are errors.
+`keyid` is the syncer's ephemeral P-256 public key as a `did:key`. `tag` identifies the MAC profile, which determines the covered header. The label (`mac` above) is arbitrary.
 
-If MAC verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
+The host responds with the covered header and a signature using the requested label and parameters, and lists `Accept-Signature` in `Vary`:
+
+```http
+Atproto-Space-Commit: ver=1, repo="did:example:alice", space="at://did:example:forum/space/com.atmoboards.forum/general", rev="3mwcj3b6uak2f", data=:q3J0...=:
+Signature-Input: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";alg="hmac-sha256";tag="atproto-space-repo"
+Signature: mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
+Vary: Accept-Signature
+```
+
+Covered headers are [Structured Field Dictionaries](https://www.rfc-editor.org/rfc/rfc9651#section-3.2) and are signed with the `sf` flag which indicates they must be normalized prior to signing. Missing or malformed headers, unknown tags, and invalid keys are errors.
+
+The syncer checks that the signature's covered components and parameters match its request, then verifies the MAC. If verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
 
 #### Commit MAC
 
-`getLatestCommit`, `getRepo`, and `listRepoOps` responses carry a [commit](#space-repos). They use `type="atproto-space-repo"`, and `ver` is the commit's `ver`. The MAC covers the commit's `space`, `repo`, `rev`, and `data`. The string fields are UTF-8, each prefixed with its byte length as a big-endian `uint16`.
+`getLatestCommit`, `getRepo`, and `listRepoOps` responses carry a [commit](#space-repos). They use the `atproto-space-repo` profile, which covers an `Atproto-Space-Commit` header containing the commit's fields, as shown above.
 
-```
-context = "atproto-space-repo-v1"   // protocol tag: "{type}-v{ver}"
-   || uint16be(len(space)) || space // space URI (at://authority/space/type/skey)
-   || uint16be(len(repo))  || repo  // author DID of the repo
-   || uint16be(len(rev))   || rev   // commit revision (TID)
+The syncer checks that the header matches the commit in the response body, and that `repo` and `space` match the requested repo.
 
-mac = HMAC-SHA256(shared_secret, context || data)
-```
-
-The syncer checks that the commit's `repo` and `space` match the requested repo, then recomputes the MAC and compares it with `mac`.
-
-A `listRepoOps` page without a commit has no response header. Its operations are checked when the final page's commit `data` is compared against the syncer's running set hash.
+A `listRepoOps` page without a commit has no signature. Its operations are checked when the final page's commit `data` is compared against the syncer's running set hash.
 
 #### Record MAC
 
-`getRecord` responses use `type="atproto-space-record"` and `ver=1`. The MAC covers the record's full [URI](#addressing) and CID:
+`getRecord` responses use the `atproto-space-record` profile, which covers an `Atproto-Space-Record` header containing the record's full [URI](#addressing) and CID:
 
-```
-context = "atproto-space-record-v1" // protocol tag: "{type}-v{ver}"
-   || uint16be(len(uri)) || uri     // full record URI, UTF-8
-
-mac = HMAC-SHA256(shared_secret, context || record_cid_bytes)
+```http
+Atproto-Space-Record: uri="at://did:example:forum/space/com.atmoboards.forum/general/did:example:alice/com.atmoboards.post/3mwcj3b6uak2f", cid="bafyrei..."
 ```
 
-`record_cid_bytes` is the binary CID encoding. The syncer checks that the URI matches the request, verifies the MAC in constant time, then checks the record's DAG-CBOR encoding against the CID.
+The syncer checks that the URI matches the request and that the CID matches the returned record.
 
 ### Repo serialization
 
@@ -510,7 +502,7 @@ A STAR file takes the following form:
 
 The magic bytes are `0x2A 0x6C 0x01 0x00`. Each `len` is an unsigned varint giving the byte length of the following item. Each pair is preceded by a `0x01` byte, and the archive ends with a `0x00` byte. Framing and parsing follow STAR's rules.
 
-The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map containing `$type` set to `atproto-space-repo` and all fields of the [commit](#space-repos). The commit's MAC is carried in the response's [`Atproto-Space-Mac` header](#authenticity-headers), not in the metadata.
+The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map containing `$type` set to `atproto-space-repo` and all fields of the [commit](#space-repos). The commit's MAC is carried in the response's [HTTP signature](#requesting-a-mac), not in the metadata.
 
 Here is an example metadata object for a space repo:
 ```json
@@ -532,7 +524,7 @@ The body contains every record in the repo:
 
 Pairs continue until the end byte (`0x00`); an empty repo has none. A consumer can reconstruct and verify the snapshot as a stream:
 
-1. Validate the metadata, including `$type` and the commit version, and check that `repo` and `space` match the requested repo. Verify the [commit MAC](#commit-mac) from the response header. The commit's `data` is then trusted.
+1. Validate the metadata, including `$type` and the commit version, and check that `repo` and `space` match the requested repo. Verify the [commit MAC](#commit-mac). The commit's `data` is then trusted.
 2. Starting with an empty [set hash](#commit-digest), read each path/record pair, validate the path and record encoding, compute the record's CID, and fold `{collection}/{rkey}/{record_cid}` into the running set hash.
 3. Once every record has been streamed, compare `sha256(state)` against the commit's `data`. Only a match establishes that the complete repo has been received.
 
@@ -962,7 +954,7 @@ An account's participation in a space is tied to the same DID as its public atpr
 
 **Migration.** Moving space repos between hosts works much like migrating a public repository, with some extra state to carry when the account is a space authority. See [Account migration](#account-migration).
 
-**Key rotation.** The account rotates its KEM key by replacing `#atproto_kem` in its DID document. Requests using the old key may fail MAC verification and need to [retry](#authenticity-headers). This does not change repo hashes or revisions.
+**Key rotation.** The account rotates its KEM key by replacing `#atproto_kem` in its DID document. Requests using the old key may fail MAC verification and need to [retry](#requesting-a-mac). This does not change repo hashes or revisions.
 
 **Deactivation & deletion.** Deactivation and deletion function exactly as they do for [public broadcast](https://atproto.com/specs/account#hosting-status). If an account is deleted, downstream services are expected to delete all data associated with the account, whether public or in spaces. If an account is deactivated, downstream services are expected to stop serving all data associated with it, whether public or in spaces.
 
