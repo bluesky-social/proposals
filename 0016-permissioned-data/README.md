@@ -282,8 +282,8 @@ When using the space credential to make authorized requests, the space credentia
 ```http
 Authorization: Atproto-Space-Credential <space-credential>
 Atproto-Space-Audience: did:plc:repoOwner
-Signature-Input: atproto-space-credential=("authorization" "atproto-space-audience");tag="atproto-space-credential"
-Signature: atproto-space-credential=:wNmSUA...:
+Signature-Input: sig=("authorization" "atproto-space-audience");tag="atproto-space-credential"
+Signature: sig=:wNmSUA...:
 ```
 
 When syncing a repository, `Atproto-Space-Audience` is the DID of the account that the repo belongs to. If the space credential is being used to make a request against the space host, then `Atproto-Space-Audience` is the space authority DID.
@@ -292,8 +292,8 @@ A host receiving a space credential MUST validate the authorization token and HT
 
 - require an `Authorization` header using the `Atproto-Space-Credential` scheme and an `Atproto-Space-Audience` header
 - validate the space credential, including its type, issuer, signature, subject space, and expiration
-- require the `atproto-space-credential` signature's covered component list to be exactly `("authorization" "atproto-space-audience")`, in that order
-- require the signature's `tag` to be `atproto-space-credential`
+- require a signature with `tag` set to `atproto-space-credential`
+- require its covered component list to be exactly `("authorization" "atproto-space-audience")`, in that order
 - require the space credential's `cnf.kid` to be a P-256 `did:key`
 - verify the signature against `cnf.kid` using `ecdsa-p256-sha256`
 - verify that `Atproto-Space-Audience` equals the audience DID derived from the request
@@ -452,21 +452,21 @@ Methods that return a [commit](#commit-mac) or [record](#record-mac) require a M
 The syncer requests a MAC with an `Accept-Signature` header:
 
 ```http
-Accept-Signature: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";alg="hmac-sha256";tag="atproto-space-repo"
+Accept-Signature: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";tag="atproto-space-repo"
 ```
 
-`keyid` is the syncer's ephemeral P-256 public key as a `did:key`. `tag` identifies the MAC profile, which determines the covered header. The label (`mac` above) is arbitrary.
+`keyid` is the syncer's ephemeral P-256 public key as a `did:key`. `tag` identifies the MAC profile, which determines the covered header.
 
 The host responds with the covered header and a signature using the requested label and parameters, and lists `Accept-Signature` in `Vary`:
 
 ```http
 Atproto-Space-Commit: ver=1, repo="did:example:alice", space="at://did:example:forum/space/com.atmoboards.forum/general", rev="3mwcj3b6uak2f", data=:q3J0...=:
-Signature-Input: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";alg="hmac-sha256";tag="atproto-space-repo"
+Signature-Input: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";tag="atproto-space-repo"
 Signature: mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
 Vary: Accept-Signature
 ```
 
-Covered headers are [Structured Field Dictionaries](https://www.rfc-editor.org/rfc/rfc9651#section-3.2) and are signed with the `sf` flag which indicates they must be normalized prior to signing. Missing or malformed headers, unknown tags, and invalid keys are errors.
+Covered headers are [Structured Field Dictionaries](https://www.rfc-editor.org/rfc/rfc9651#section-3.2) and are signed with the `sf` flag, which indicates they must be normalized prior to signing. Missing or malformed headers, unknown tags, and invalid keys are errors.
 
 The syncer checks that the signature's covered components and parameters match its request, then verifies the MAC. If verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
 
