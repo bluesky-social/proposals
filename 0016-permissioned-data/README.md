@@ -590,7 +590,7 @@ Space hosts receive write notifications from repo hosts, and sequence updates ov
 
 Each credential request for a given endpoint renews that endpoint's registration and replaces its token with the newly provided value. The registration lasts until that credential expires plus one more notification. A syncer that keeps its credential fresh stays registered. One that lets its credential lapse is woken by the next write, and renews its registration when it fetches a new credential to sync that write. 
 
-The token is not required to change on each credential request. It is an opaque token and may be randomly generated or derived statelessly from (e.g. from the space ref + the time). The syncer should use a different token for each space and reject requests with a token it doesn't recognize.
+The token is not required to change on each credential request. It is an opaque token and may be randomly generated or derived statelessly (e.g. from a key derivation key + the space ref). The syncer should use a different token for each space and reject requests with a token it doesn't recognize.
 
 To unregister, a syncer either stops renewing, or responds to a notification with a permanent HTTP error to unregister immediately. The space host should also drop a registration early if it [revokes](#credential-expiration-and-revocation) the credential that last renewed it, or refuses a credential request that carries it. 
 
