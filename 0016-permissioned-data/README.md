@@ -292,11 +292,14 @@ A host receiving a space credential MUST validate the authorization token and HT
 
 - require an `Authorization` header using the `Atproto-Space-Credential` scheme and an `Atproto-Space-Audience` header
 - validate the space credential, including its type, issuer, signature, subject space, and expiration
-- require a signature with `tag` set to `atproto-space-credential`
+- require exactly one signature with `tag` set to `atproto-space-credential`
 - require its covered component list to be exactly `("authorization" "atproto-space-audience")`, in that order
+- if the signature has a `keyid` parameter, require it to equal the space credential's `cnf.kid`
 - require the space credential's `cnf.kid` to be a P-256 `did:key`
 - verify the signature against `cnf.kid` using `ecdsa-p256-sha256`
 - verify that `Atproto-Space-Audience` equals the audience DID derived from the request
+
+The host finds the signature by its `tag` rather than its label, since intermediaries may relabel signatures. Any other signature parameters ignored.
 
 The signature does not bind the HTTP method or URI. It MAY be reused with the same authorization token and audience DID until the token expires. Replay against the same audience is allowed.
 
@@ -455,9 +458,9 @@ The syncer requests a MAC with an `Accept-Signature` header:
 Accept-Signature: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";tag="atproto-space-repo"
 ```
 
-`keyid` is the syncer's ephemeral P-256 public key as a `did:key`. `tag` identifies the MAC profile, which determines the covered header.
+`keyid` is the syncer's ephemeral P-256 public key as a `did:key`. `tag` identifies the MAC profile, which determines the covered header. The request may also include `alg`, but no other parameters.
 
-The host responds with the covered header and a signature using the requested label and parameters, and lists `Accept-Signature` in `Vary`:
+The host ignores any requested signatures with other tags. It responds with the covered header and a signature using the requested label and parameters, and lists `Accept-Signature` in `Vary`:
 
 ```http
 Atproto-Space-Commit: ver=1, repo="did:example:alice", space="at://did:example:forum/space/com.atmoboards.forum/general", rev="3mwcj3b6uak2f", data=:q3J0...=:
@@ -466,9 +469,9 @@ Signature: mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
 Vary: Accept-Signature
 ```
 
-Covered headers are [Structured Field Dictionaries](https://www.rfc-editor.org/rfc/rfc9651#section-3.2) and are signed with the `sf` flag, which indicates they must be normalized prior to signing. Missing or malformed headers, unknown tags, and invalid keys are errors.
+Covered headers are [Structured Field Dictionaries](https://www.rfc-editor.org/rfc/rfc9651#section-3.2) and are signed with the `sf` flag, which indicates they must be normalized prior to signing. The host returns an error if the header is missing or malformed, contains more than one request with the profile's tag, requests other parameters, or has an invalid key.
 
-The syncer checks that the signature's covered components and parameters match its request, then verifies the MAC. If verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
+The syncer checks the MAC the same way a host checks a [space credential's signature](#presenting-a-space-credential). It requires exactly one signature with the profile's `tag`, covering exactly the profile's header, with `keyid` and `alg` matching its request if present. If verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
 
 #### Commit MAC
 
@@ -550,7 +553,7 @@ To advance, a syncer calls `com.atproto.space.listRepoOps` with a `since` revisi
 
 By default `listRepoOps` inlines each created or updated record's value alongside its operation, so a syncer advances in a single call without a `getRecord` round-trip per write. Only the current value for a path is inlined. If a record has been updated or deleted by a later operation, the host omits the intermediate (now stale) values. A syncer may set `excludeValues` to receive only the operation metadata (for example, to drive selective `getRecord` calls).
 
-If a given oplog response includes the last available operation that occurred to a repo, then the response must also include the member's current [commit](#space-repos). The syncer verifies the response MAC and compares the commit's `data` against its own running set hash. If they match, the syncer is fully in sync. If they do not, the syncer has diverged and must fall back to a recovery process.
+Every oplog response must include the member's current [commit](#space-repos). After applying the last page (the one without a `cursor`), the syncer verifies the response MAC and compares the commit's `data` against its own running set hash. If they match, the syncer is fully in sync. If they do not, the syncer has diverged and must fall back to a recovery process.
 
 Sync is self-healing because its correctness rests on the set hash comparison rather than on receiving every operation. A missed operation is detected on a subsequent sync. A total disjunction in repository history is also recognizable, and is recovered from by syncing the repository contents in their entirety.
 
