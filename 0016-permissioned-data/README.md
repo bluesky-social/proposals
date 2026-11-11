@@ -411,42 +411,30 @@ The entry MUST have:
 
 The repo host holds the private key. This should be a dedicated keypair rather than a reuse of the `#atproto` signing key.
 
-The construction below is ECDH framed as a KEM. ECDH is not post-quantum secure, and the KEM framing lets a future version swap in a post-quantum KEM such as ML-KEM.
-
 #### Shared secret
 
-To request a MAC, the syncer:
+For each request, the syncer and repo host need a fresh secret. The syncer generates one from the author's KEM public key, along with a short value called the encapsulation (`enc`), and sends `enc` to the repo host. The repo host recovers the same secret from `enc` using the author's private key.
 
-1. Resolves the author's `#atproto_kem` public key.
-2. Generates a new ephemeral P-256 keypair for this request.
-3. Performs ECDH using the new private key and the author's public key.
-4. Derives a 32-byte `shared_secret` from the ECDH result, as shown below.
-5. Keeps `shared_secret` and sends its new public key as the `keyid` of its [MAC request](#requesting-a-mac).
-
-The syncer generates a new keypair for every request, including retries and each page of a paginated response.
-
-After authorizing the request, the repo host decodes the syncer's public key from `keyid`, performs ECDH using the author's private key, and derives the same `shared_secret`.
-
-Both sides derive `shared_secret` with HKDF-SHA256. The key encoding and HKDF inputs follow [RFC 9180 §4.1](https://www.rfc-editor.org/rfc/rfc9180#section-4.1).
+This uses the [secret export](https://www.rfc-editor.org/rfc/rfc9180#section-6.2) feature of HPKE ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180)), a standard usually used to encrypt messages to a public key. Only the export feature is used here, so nothing is encrypted. The ciphersuite is DHKEM(P-256, HKDF-SHA256) with HKDF-SHA256 and the Export-only AEAD:
 
 ```
-// The 32-byte x-coordinate of the shared point; both sides get the same value.
-dh = ECDH(syncer_private_key, author_public_key) // on the syncer
-   = ECDH(author_private_key, syncer_public_key) // on the repo host
+// HPKE base mode, with KEM 0x0010, KDF 0x0001, and AEAD 0xFFFF.
+// info is a fixed label tying the secret to this protocol.
 
-// Uncompressed points (following RFC 9180), even though did:key and multikey use the compressed form.
-syncer_key_bytes = 0x04 || syncer_public_key.x || syncer_public_key.y
-author_key_bytes = 0x04 || author_public_key.x || author_public_key.y
-keys = syncer_key_bytes || author_key_bytes
+// on the syncer
+enc, shared_secret = SendExportBase(author_public_key, info="atproto-space-mac", exporter_context="", L=32)
 
-// These are fixed labels from RFC 9180; 0x0010 identifies P-256 DHKEM.
-prefix = "HPKE-v1" || "KEM" || uint16be(0x0010)
-input = prefix || "eae_prk" || dh
-info = uint16be(32) || prefix || "shared_secret" || keys
-
-// Run HKDF with an empty salt and ask for 32 bytes of key material.
-shared_secret = HKDF-SHA256(input, salt="", info=info, length=32)
+// on the repo host
+shared_secret = ReceiveExportBase(enc, author_private_key, info="atproto-space-mac", exporter_context="", L=32)
 ```
+
+With this ciphersuite, `enc` is just a new ephemeral P-256 public key. The syncer sends it as the `keyid` of its [MAC request](#requesting-a-mac), encoded as a `did:key`. Note that HPKE encodes `enc` as an uncompressed point, while `did:key` uses the compressed form.
+
+The syncer derives a new `shared_secret` for every request, including retries and each page of a paginated response. The repo host derives its copy after authorizing the request.
+
+Implementers who would rather not depend on an HPKE library can follow the equivalent ECDH and HKDF steps in the [appendix](#appendix-shared-secret-without-hpke).
+
+This KEM is not post-quantum secure. A future version may swap in a post-quantum KEM such as ML-KEM.
 
 #### Requesting a MAC
 
@@ -962,3 +950,40 @@ An account's participation in a space is tied to the same DID as its public atpr
 If a space authority is taken down or deactivated, its spaces are suspended. The space host answers `getSpaceCredential` and `listWriters` with `RepoTakendown` or `RepoDeactivated`. Credentials already issued remain valid until they expire, members' repos are unaffected, and the spaces resume if the account is reinstated. Unlike [space deletion](#space-deletion), this is not a signal for syncers to drop the space's data.
 
 **Identity & account events.** Applications currently learn about changes to an account's status or identity (such as its signing key, KEM key, and handle) via events on the firehose (`com.atproto.sync.subscribeRepos`). These same account updates apply to space repos in exactly the same manner. This means an application that syncs only space repos, and no public repositories, still needs to subscribe to a firehose to receive `#account` and `#identity` events. Future work may include an additional subscription endpoint that broadcasts only those two event types without the full stream of public repository commits.
+
+## Appendix: Shared secret without HPKE
+
+This section is non-normative. It expands the [shared secret](#shared-secret) computation into plain ECDH and HKDF-SHA256 calls, for implementers who would rather not depend on an HPKE library. The result is identical, and can be checked against the export-only P-256 entry in the [HPKE test vectors](https://github.com/cfrg/draft-irtf-cfrg-hpke/blob/master/test-vectors.json).
+
+There are three steps. ECDH between a new ephemeral key and the author's key produces a raw secret. A key schedule then mixes in the `info` label. Finally, the 32-byte `shared_secret` is exported from the result.
+
+```
+// Strings are ASCII, || is concatenation, uint16be(n) is n as 2 big-endian bytes,
+// and "" is an empty byte string. P-256 public keys are uncompressed (0x04 || x || y),
+// even though did:key uses the compressed form.
+
+// HPKE labels every HKDF input with a version and the IDs of the algorithms in use.
+kem_id   = "KEM" || uint16be(0x0010)                                          // DHKEM(P-256, HKDF-SHA256)
+suite_id = "HPKE" || uint16be(0x0010) || uint16be(0x0001) || uint16be(0xFFFF) // + HKDF-SHA256, Export-only
+
+LabeledExtract(id, salt, label, ikm)   = HKDF-Extract(salt, "HPKE-v1" || id || label || ikm)
+LabeledExpand(id, prk, label, info, L) = HKDF-Expand(prk, uint16be(L) || "HPKE-v1" || id || label || info, L)
+
+// 1. ECDH. The syncer generates a new ephemeral P-256 keypair, whose public key is enc.
+//    dh is the 32-byte x-coordinate of the shared point; both sides get the same value.
+dh = ECDH(ephemeral_private_key, author_public_key) // on the syncer
+   = ECDH(author_private_key, enc)                  // on the repo host
+
+eae_prk    = LabeledExtract(kem_id, "", "eae_prk", dh)
+kem_secret = LabeledExpand(kem_id, eae_prk, "shared_secret", enc || author_public_key, 32)
+
+// 2. Key schedule. Base mode (0x00), with no pre-shared key.
+psk_id_hash     = LabeledExtract(suite_id, "", "psk_id_hash", "")
+info_hash       = LabeledExtract(suite_id, "", "info_hash", "atproto-space-mac")
+context         = 0x00 || psk_id_hash || info_hash
+secret          = LabeledExtract(suite_id, kem_secret, "secret", "")
+exporter_secret = LabeledExpand(suite_id, secret, "exp", context, 32)
+
+// 3. Export, with an empty exporter context.
+shared_secret = LabeledExpand(suite_id, exporter_secret, "sec", "", 32)
+```
