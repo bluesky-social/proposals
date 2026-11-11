@@ -299,7 +299,7 @@ A host receiving a space credential MUST validate the authorization token and HT
 - verify the signature against `cnf.kid` using `ecdsa-p256-sha256`
 - verify that `Atproto-Space-Audience` equals the audience DID derived from the request
 
-The host finds the signature by its `tag` rather than its label, since intermediaries may relabel signatures. Any other signature parameters ignored.
+The host finds the signature by its `tag` rather than its label, since intermediaries may relabel signatures. Any other signature parameters are ignored.
 
 The signature does not bind the HTTP method or URI. It MAY be reused with the same authorization token and audience DID until the token expires. Replay against the same audience is allowed.
 
@@ -471,7 +471,7 @@ Vary: Accept-Signature
 
 Covered headers are [Structured Field Dictionaries](https://www.rfc-editor.org/rfc/rfc9651#section-3.2) and are signed with the `sf` flag, which indicates they must be normalized prior to signing. The host returns an error if the header is missing or malformed, contains more than one request with the profile's tag, requests other parameters, or has an invalid key.
 
-The syncer checks the MAC the same way a host checks a [space credential's signature](#presenting-a-space-credential). It requires exactly one signature with the profile's `tag`, covering exactly the profile's header, with `keyid` and `alg` matching its request if present. If verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
+The syncer checks the MAC the same way a host checks a [space credential's signature](#presenting-a-space-credential). It requires exactly one signature with the profile's `tag`, covering exactly the profile's header, with `keyid` matching its request, if present. If verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
 
 #### Commit MAC
 
