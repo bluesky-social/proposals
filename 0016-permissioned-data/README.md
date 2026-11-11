@@ -580,7 +580,7 @@ A syncer may discover which blobs a repo references through `com.atproto.space.l
 
 ### Write notifications
 
-Write notifications inform syncers that a repo has been updated, so they can pull promptly instead of continuously polling for updates. A write notification contains no record data, and states only that a given repo in a given space has reached a new `rev` and `data`.
+Write notifications inform syncers that a repo has been updated, so they can pull promptly instead of continuously polling for updates. A write notification contains no record data, and states only that a given repo in a given space has reached a new `rev` and `data`, or has been removed from the writer set.
 
 Space hosts receive write notifications from repo hosts, and sequence updates over the entire space. A syncer subscribes to notifications by calling `com.atproto.space.registerNotify` on the space host (using a space credential for authorization) and subsequently receives notifications for all repos. Registrations have a fixed time duration, indicated by an expiration time in the API response body. A registration can be withdrawn with `com.atproto.space.unregisterNotify`, or simply left to expire.
 
@@ -600,11 +600,13 @@ Because it receives updates from every repository in the space, the authority ca
 
 The writer set is a simple fetch and carries no commit or history. It enumerates accounts that have **written at least one record** into the space, not the broader set of accounts that are merely *allowed* to write (which the authority may not even track) nor those that may only read it. Accounts that may read the space are never enumerated at the protocol-level, though applications may choose to enumerate them through records published in the space.
 
-The writer set is what the authority *claims*, and is not itself authoritative for any individual repo. It is current as far as the authority's notifications have kept it. A listed account's repo host is the source of truth for whether that repo actually holds data. A syncer treats the writer set as the starting point for discovery and confirms each repo by syncing it directly from its host.
+The writer set is what the authority *claims*, and is not itself authoritative for any repo's contents. It is current as far as the authority's notifications have kept it. A listed account's repo host is the source of truth for whether that repo actually holds data. A syncer treats the writer set as the starting point for discovery and confirms each repo by syncing it directly from its host.
 
-Similar to a repo host garbage collecting empty space repos, the authority MAY garbage collect empty repos from the writer set. It SHOULD wait at least 72 hrs first, and no notification is sent for collection.
+Inclusion in the writer set is necessary but not sufficient. A syncer does not treat a repo outside the writer set as part of the space, but applications may still exclude repos that are included in the writer set based on application semantics.
 
-The authority can drop an account from the writer set if that account loses write access. This can be explicitly requested with `com.atproto.space.removeWriter`. A removed account can be re-added to the writer set later if they make an authorized write to the space.
+Similar to a repo host garbage collecting empty space repos, the authority MAY garbage collect empty and removed repos from the writer set. It SHOULD wait at least 72 hrs first, and no notification is sent for collection.
+
+The authority can drop an account from the writer set if that account loses write access. This can be explicitly requested with `com.atproto.space.removeWriter`. Removals are sent to syncers through `notifyRepoUpdate` and `listWriters`. A removed account can be re-added to the writer set later if they make an authorized write to the space.
 
 ## Space deletion
 
@@ -917,7 +919,7 @@ The member list is managed through `memberspace`'s own methods:
 
 Each member-list entry carries required `read` and `write` booleans, and `putMembers` replaces both together. The member list is not part of the `policy` object. It persists across configuration changes and is discarded on [migration](#space-policy) to a different policy.
 
-When `removeMembers` removes a member, or `putMembers` revokes a member's write access, the authority SHOULD also remove that account from the writer set. Writers tracked under `publicWrite` are not on the member list, but can be explicitly removed with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set). While `publicWrite` is set, a removed writer is tracked again as soon as it writes.
+When `removeMembers` removes a member, or `putMembers` revokes a member's write access, the authority SHOULD also remove that account from the writer set. Writers tracked under `publicWrite` are not on the member list, but can be explicitly removed with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set). While `publicWrite` is set, a removed writer is tracked again as soon as it writes, unless it is on the member list with `write` set to false.
 
 ### `managedspace`
 
