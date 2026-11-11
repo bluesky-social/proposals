@@ -361,7 +361,7 @@ A space repo can be cleared all at once with `com.atproto.space.clearRecords`. T
 
 Writing a record to the space again recreates the repo under the same rules above. Deleting a repo does not delete the space itself (see [Space deletion](#space-deletion)).
 
-A repo host MAY garbage collect an empty space repo, discarding its commit and any other remaining state. This may happen as routine cleanup or during [account migration](#account-migration), where empty repos need not be carried over to the new host. The host SHOULD wait a while before collecting a cleared repo, to give the clear time to propagate to the space host and to syncers. Once collected, the host responds to requests for the repo as if it never existed.
+A repo host MAY garbage collect an empty space repo, discarding its commit and any other remaining state. This may happen as routine cleanup or during [account migration](#account-migration), where empty repos need not be carried over to the new host. The host SHOULD wait at least 72 hrs before collecting a cleared repo, to give the clear time to propagate to the space host and to syncers. Once collected, the host responds to requests for the repo as if it never existed, and syncers treat this the same as an empty repo. No write notification is sent on garbage collection.
 
 ### Commit digest
 
@@ -601,6 +601,8 @@ Because it receives updates from every repository in the space, the authority ca
 The writer set is a simple fetch and carries no commit or history. It enumerates accounts that have **written at least one record** into the space, not the broader set of accounts that are merely *allowed* to write (which the authority may not even track) nor those that may only read it. Accounts that may read the space are never enumerated at the protocol-level, though applications may choose to enumerate them through records published in the space.
 
 The writer set is what the authority *claims*, and is not itself authoritative for any individual repo. It is current as far as the authority's notifications have kept it. A listed account's repo host is the source of truth for whether that repo actually holds data. A syncer treats the writer set as the starting point for discovery and confirms each repo by syncing it directly from its host.
+
+Similar to a repo host garbage collecting empty space repos, the authority MAY garbage collect empty repos from the writer set. It SHOULD wait at least 72 hrs first, and no notification is sent for collection.
 
 The authority can drop an account from the writer set if that account loses write access. This can be explicitly requested with `com.atproto.space.removeWriter`. A removed account can be re-added to the writer set later if they make an authorized write to the space.
 
