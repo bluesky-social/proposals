@@ -996,7 +996,7 @@ Application services are responsible for appropriately restricting access to spa
 
 Applications may hold OAuth sessions for multiple accounts. While a [space credential](#space-credential) lets an application sync a space, it does not tell it which of its users should see that space. The protocol is very flexible about how access is determined, which means there is no universal framework or set of rules. Applications must understand the space type and synchronize any supporting data, which might include per-space configuration, public data records, or even off-protocol information. This includes determining whether a space is fully public (no access restrictions) and detecting changes to access controls.
 
-For example, a [`memberspace`](#memberspace) may publish its membership records. Or a space may grant access to accounts that the space authority follows. This requires gating actual space access via a `managedspace`, but the syncing application is also responsible for understanding and enforcing this application semantic in the views that it serves.
+For example, a [`memberspace`](#memberspace) may publish its membership records. Or a space may grant access to accounts that the space authority follows which requires gating actual space access via a `managedspace`. In either case, the syncing application is responsible for understanding and enforcing this application semantic in the views that it serves.
 
 A space that wants to be served by feeds and other third-party services that are added as "service accounts" to the space should publish its access rules as records.
 
