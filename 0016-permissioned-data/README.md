@@ -131,8 +131,8 @@ A space type NSID resolves to a **space type declaration**: a Lexicon definition
 | `type` | `"space"` | yes | Marks this as a space type declaration. Must be the `main` definition. |
 | `description` | string | no | Description of the space type for developers. Not shown to users. |
 | `key` | string | yes | Specifies the recommended space key type (similar to [record key types](https://atproto.com/specs/record-key#record-key-type-tid)) |
-| `title` | string | yes | Short human-readable name for the space type, shown to users on consent screens. |
-| `title:lang` | map<lang, string> | no | Localized `name` values by language code. |
+| `title` | string | no | Short human-readable name for the space type, shown to users on consent screens. |
+| `title:lang` | map<lang, string> | no | Localized `title` values by language code. |
 | `collections` | array of NSID | yes | Collections clients should expect in a space of this type. |
 
 The `collections` field is the default `collection` set for a [`space:` permission](#oauth-scopes) for spaces of this type. This can impact which records can be read and written to by default, though clients may request broader permissions beyond this set. The `collections` field may *not* include a wildcard (`*`). As shown in the example above, the `collections` field may contain record types from any NSID domain, not only those under the same domain authority as the space type NSID.
@@ -682,7 +682,7 @@ The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.
 
 ### Consent
 
-A `space:` scope is presented to the user on the OAuth consent screen and requires user-legible text. Each space `type` resolves to a [space type declaration](#space-type-declarations). The consent screen then displays the declaration's `title` (e.g. "AtmoBoards Forum") in place of the raw NSID.
+A `space:` scope is presented to the user on the OAuth consent screen and requires user-legible text. Each space `type` resolves to a [space type declaration](#space-type-declarations). The consent screen then displays the declaration's `title` (e.g. "AtmoBoards Forum") in place of the raw NSID, falling back to the NSID if no `title` is set.
 
 If a particular `authority` DID is specified in a scope, it should be presented to the user as the bidirectionally linked handle associated with the DID. If no handle bidirectionally validates, then the DID itself should be shown. An `authority` of `self` refers to the user's own account and needs no such presentation.
 
