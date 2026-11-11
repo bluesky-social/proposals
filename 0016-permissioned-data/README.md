@@ -267,13 +267,13 @@ The application requests a space credential by calling `getSpaceCredential` on t
 ```json
 {
   "space": "at://did:example:space_did/space/com.example.space_type/space_key",
-  "credentialKid": "did:key:zDna...", // required, P-256 did:key to bind the credential to
+  "credentialKey": "did:key:zDna...", // required, P-256 did:key to bind the credential to
   "delegationToken": "eyJ...", // optional, when the space requires it
   "clientAttestation": "eyJ..." // optional, when the space requires it
 }
 ```
 
-On authorization, the space host uses `credentialKid` as the space credential's `cnf.kid`.
+On authorization, the space host uses `credentialKey` as the space credential's `cnf.kid`.
 
 #### Presenting a space credential
 
@@ -333,7 +333,7 @@ An application serving several users of a space does not necessarily need to mai
 
 Short expiration is the primary revocation mechanism for space credentials. When an authority stops authorizing an application, or the application no longer has any authorized user's session available for a space that requires a delegation token, it can no longer obtain replacement credentials and its outstanding credentials expire after their remaining lifetime (generally 10 minutes).
 
-For cases that call for faster revocation, an authority MAY send `com.atproto.space.notifyCredentialRevoked` to repo hosts serving repos in the space. The notification identifies one or more outstanding credentials by `jti`. A repo host MUST reject a credential whose `jti` has been revoked for that space and retain the revocation for at least 60 minutes, after which no credential with that `jti` can remain valid. The method is authenticated with service auth from the space authority.
+For cases that call for faster revocation, an authority MAY send `com.atproto.space.notifyCredentialsRevoked` to repo hosts serving repos in the space. The notification identifies one or more outstanding credentials by `jti`. A repo host MUST reject a credential whose `jti` has been revoked for that space and retain the revocation for at least 60 minutes, after which no credential with that `jti` can remain valid. The method is authenticated with service auth from the space authority.
 
 For large spaces with many participants, revocation is more costly and less necessary. For smaller spaces, revocation may be more important but also fanout is less costly. The authority is in the best position to make this determination. Therefore, it is both the authority's responsibility and prerogative to fan out revocations. Revocation is idempotent so that the authority may safely retry delivery without creating another stored entry.
 
@@ -584,9 +584,9 @@ Write notifications inform syncers that a repo has been updated, so they can pul
 
 Space hosts receive write notifications from repo hosts, and sequence updates over the entire space. A syncer subscribes to notifications by calling `com.atproto.space.registerNotify` on the space host (using a space credential for authorization) and subsequently receives notifications for all repos. Registrations have a fixed time duration, indicated by an expiration time in the API response body. A registration can be withdrawn with `com.atproto.space.unregisterNotify`, or simply left to expire.
 
-When an account writes to a space repo, their PDS sends a `com.atproto.space.notifyWrite` containing the updated repo's `rev` and `data` to the space host associated with the space authority (unless the authority is the repo account itself). Notification between repo hosts and space hosts is automatic and does not require registration. The space host should reject write notifications for repos which are not authorized to write to the space. Repo hosts are responsible for reliably updating the space host with the latest repo state, and should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors. Notification API calls are authenticated using service auth. The space host is not expected to verify the integrity or authenticity of the repo `data`. Similar to public repository synchronization, the repo revision (`rev`) is a timestamp identifier (TID) which must increase monotonically (updates with a lower or equal revision should be ignored), and must not correspond to a future timestamp (beyond a short clock skew window).
+When an account writes to a space repo, their PDS sends a `com.atproto.space.notifyRepoUpdate` containing the updated repo's `rev` and `data` to the space host associated with the space authority (unless the authority is the repo account itself). Notification between repo hosts and space hosts is automatic and does not require registration. The space host should reject write notifications for repos which are not authorized to write to the space. Repo hosts are responsible for reliably updating the space host with the latest repo state, and should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors. Notification API calls are authenticated using service auth. The space host is not expected to verify the integrity or authenticity of the repo `data`. Similar to public repository synchronization, the repo revision (`rev`) is a timestamp identifier (TID) which must increase monotonically (updates with a lower or equal revision should be ignored), and must not correspond to a future timestamp (beyond a short clock skew window).
 
-When the space host receives a valid write notification, it updates a local table tracking the state of each repo in the space, and then forwards notifications to all of the currently registered syncers. The space host is only responsible for reasonable-effort delivery of this synchronization hop. The space host sequences updates with a separate revision (TID) for the overall space, and indicates the current and previous space revision in each forwarded write notification. Syncers can detect missed notifications from a gap in space revisions, and request a list of all repos in the space updated "since" an earlier space revision using the `com.atproto.space.listRepos` endpoint. Syncers can use the same endpoint to ensure synchronization state after any duration of downtime.
+When the space host receives a valid write notification, it updates a local table tracking the state of each repo in the space, and then forwards notifications to all of the currently registered syncers. The space host is only responsible for reasonable-effort delivery of this synchronization hop. The space host sequences updates with a separate revision (TID) for the overall space, and indicates the current and previous space revision in each forwarded write notification. Syncers can detect missed notifications from a gap in space revisions, and request a list of all repos in the space updated "since" an earlier space revision using the `com.atproto.space.listWriters` endpoint. Syncers can use the same endpoint to ensure synchronization state after any duration of downtime.
 
 When a syncer receives a valid write notification, it performs repo sync directly with the relevant repo host, not through the space host. The space host (if distinct from the repo host) never hosts or distributes record data, only repo update metadata.
 
@@ -594,9 +594,9 @@ The space authority controls which writers it tracks and which write notificatio
 
 ### The sync boundary (writer set)
 
-Syncing an individual repo requires the syncer to know that the repo exists. To sync a space in full, or to begin syncing a space for the first time, an application requires the set of accounts whose repos hold data in the space. This **writer set** is retrieved from the space authority via `com.atproto.space.listRepos`.
+Syncing an individual repo requires the syncer to know that the repo exists. To sync a space in full, or to begin syncing a space for the first time, an application requires the set of accounts whose repos hold data in the space. This **writer set** is retrieved from the space authority via `com.atproto.space.listWriters`.
 
-Because it receives updates from every repository in the space, the authority can easily maintain a complete and current record of which repos hold data in the space. Alongside each account, `listRepos` returns that repo's current `rev` and `data`.
+Because it receives updates from every repository in the space, the authority can easily maintain a complete and current record of which repos hold data in the space. Alongside each account, `listWriters` returns that repo's current `rev` and `data`.
 
 The writer set is a simple fetch and carries no commit or history. It enumerates accounts that have **written at least one record** into the space, not the broader set of accounts that are merely *allowed* to write (which the authority may not even track) nor those that may only read it. Accounts that may read the space are never enumerated at the protocol-level, though applications may choose to enumerate them through records published in the space.
 
@@ -610,7 +610,7 @@ The authority can drop an account from the writer set if that account loses writ
 
 A space may be deleted by its authority. The authority stops issuing credentials for the space and deletes all records in its own repo in the space.
 
-The authority then notifies the syncers registered for the space with `com.atproto.space.notifySpaceDeleted`. The authority is responsible for reliably delivering this notification to each registered syncer, with the same rigor as a repo host delivering write notifications to the space host: it should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors.
+The authority then notifies the syncers registered for the space with `com.atproto.space.notifySpaceStatus`, with a `status` of `deleted`. The authority is responsible for reliably delivering this notification to each registered syncer, with the same rigor as a repo host delivering write notifications to the space host: it should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors.
 
 A **syncer** should delete every copy of the space's data it holds, both the repos it pulled and any derived state, as it is no longer authorized to retain them. A syncer that misses the notification learns the space is gone on its next credential renewal. The authority should answer `getSpaceCredential` for a deleted space with an explicit `SpaceDeleted` error. A renewal that fails for any other reason says nothing about the space, and the syncer retains its copy.
 
@@ -734,7 +734,7 @@ This default follows the same dynamic-update semantics as a [permission set](htt
 
 **Space management operations** are governed by `manage`, which takes the same `create`/`update`/`delete` verbs applied to the space itself rather than to its records. `manage` ignores `collection`. It is omitted by default, so an ordinary record-access grant confers no administrative capability.
 
-The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.space.createSpace`, `updateSpace`, `deleteSpace`) as well as any administrative methods the space's [`policy`](#space-policy) defines. For example, on a `memberspace` space, `manage=update` authorizes `updateSpace` as well as `com.atproto.memberspace.putMember` and `removeMember`. `manage=update` also authorizes `com.atproto.space.removeWriter` under every policy.
+The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.space.createSpace`, `updateSpace`, `deleteSpace`) as well as any administrative methods the space's [`policy`](#space-policy) defines. For example, on a `memberspace` space, `manage=update` authorizes `updateSpace` as well as `com.atproto.memberspace.putMembers` and `removeMembers`. `manage=update` also authorizes `com.atproto.space.removeWriter` under every policy.
 
 `manage=create` authorizes creating a space of the given `spaceType` under the given authority. It concerns a space that does not yet exist, so scoping it to a concrete `skey` is unusual. It is typically granted with `skey=*` ("this app may create spaces of this type").
 
@@ -801,7 +801,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | Method | Role | Type | Auth | Description |
 |---|---|---|---|---|
 | `getSpaceCredential` | host | procedure | none (delegation token and client attestation included in request body) | Request a space credential. |
-| `listRepos` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `data`. |
+| `listWriters` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `data`. |
 | `removeWriter` | host | procedure | OAuth (`manage=update`) | Remove an account from a space's [writer set](#the-sync-boundary-writer-set). |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
@@ -824,11 +824,11 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `getSpace` | host | query | OAuth `read_self` | Describe a space: its identity and current [`policy`](#space-policy). |
 | `exportSpaceMeta` | host | query | OAuth `read_self` | Download a space's host-side state as a [space meta archive](#space-meta-archive). |
 | `importSpaceMeta` | pds | procedure | OAuth (`manage=create` and `manage=update`) | Import a space from a [space meta archive](#space-meta-archive) during [account migration](#account-migration). |
-| `registerNotify` | host | procedure | space credential | Register a service to be notified of writes for the whole space. |
+| `registerNotify` | host | procedure | space credential | Register a service to be notified of updates to the whole space. |
 | `unregisterNotify` | host | procedure | space credential | Withdraw a `registerNotify` registration. |
-| `notifyWrite` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `data`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
-| `notifySpaceDeleted` | syncer | procedure | service auth | Notify that a space was deleted and its data should be dropped. Sent by the authority to the syncers registered for the space. |
-| `notifyCredentialRevoked` | repo | procedure | service auth | Notify a repo host that the authority has revoked one or more space credentials, identified by `jti`. |
+| `notifyRepoUpdate` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `data`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
+| `notifySpaceStatus` | syncer | procedure | service auth | Notify a syncer of a change in a space's status. A `deleted` space's data should be dropped. Sent by the authority to the syncers registered for the space. |
+| `notifyCredentialsRevoked` | repo | procedure | service auth | Notify a repo host that the authority has revoked one or more space credentials, identified by `jti`. |
 
 ## Space policy
 
@@ -862,11 +862,11 @@ Every PDS MUST support a set of three baseline policies. Each is anchored on the
 |---|---|
 | [`com.atproto.personalspace.policy`](#personalspace) | Only the space authority's own account has access. |
 | [`com.atproto.memberspace.policy`](#memberspace) | Checked against a member list maintained by the PDS. |
-| [`com.atproto.managedspace.policy`](#managedspace) | Delegated to an external managing app for each user. |
+| [`com.atproto.managedspace.policy`](#managedspace) | Delegated to an external managing app. |
 
 These policies are neither the only permitted ones nor privileged ones. They are simply the ones every PDS is required to support. Other policies are full protocol participants, and may be implemented by a PDS or by a bespoke space host.
 
-In each baseline policy, reading and writing are independent permissions. Read access controls whether a space credential is minted. Write access controls whether the authority tracks the writer in `listRepos` and forwards their `notifyWrite` notifications. It does not prevent an account from writing records into its own space repo, and applications remain responsible for deciding which records to include in their views.
+In each baseline policy, reading and writing are independent permissions. Read access controls whether a space credential is minted. Write access controls whether the authority tracks the writer in `listWriters` and forwards their `notifyRepoUpdate` notifications. It does not prevent an account from writing records into its own space repo, and applications remain responsible for deciding which records to include in their views.
 
 ### Publishing to readers
 
@@ -879,13 +879,13 @@ For this, `memberspace` and `managedspace` carry a `publishPolicy` flag, and `me
 | `publishPolicy` | `com.atproto.space.policy` | `self` | `policy`: the current policy object |
 | `publishMembers` | `com.atproto.memberspace.member` | the member's DID | `read`, `write` |
 
-The config remains the source of truth for access, and records are a copy. It is the PDS's responsibility to keep the two in sync. For instance, when a client calls `putMember` on a space with a published member list, the PDS should both update the configuration and publish a record in the space. The PDS should reject direct writes of these records through repo CRUD methods, and [`clearRecords`](#repo-lifecycle) leaves them in place in the authority's repo. Since any member is technically capable of writing records of these types to their own repo, readers should only treat them as authoritative in the authority's repo.
+The config remains the source of truth for access, and records are a copy. It is the PDS's responsibility to keep the two in sync. For instance, when a client calls `putMembers` on a space with a published member list, the PDS should both update the configuration and publish a record in the space. The PDS should reject direct writes of these records through repo CRUD methods, and [`clearRecords`](#repo-lifecycle) leaves them in place in the authority's repo. Since any member is technically capable of writing records of these types to their own repo, readers should only treat them as authoritative in the authority's repo.
 
 Note that even if a member list isn't published, members that have written to the space can still be enumerated through the [writer set](#the-sync-boundary-writer-set).
 
 ### `personalspace`
 
-`com.atproto.personalspace.policy` is for data that only its owner should see, such as bookmarks, mutes, or drafts. Only the space authority's own account is authorized to read, and the authority tracks no other writers.
+`com.atproto.personalspace.policy` is for personal data, such as bookmarks, mutes, or drafts. Only the space authority's own account (through the apps it authorizes) is authorized to read, and the authority tracks no other writers.
 
 `personalspace` has no configuration fields and defines no methods of its own.
 
@@ -911,28 +911,28 @@ The member list is managed through `memberspace`'s own methods:
 
 | Method | Type | Auth | Description |
 |---|---|---|---|
-| `putMember` | procedure | OAuth (`manage=update`) | Add a member (by DID) or replace their `read` and `write` access. |
-| `removeMember` | procedure | OAuth (`manage=update`) | Remove a member (by DID). |
+| `putMembers` | procedure | OAuth (`manage=update`) | Add members (by DID) or replace their `read` and `write` access. |
+| `removeMembers` | procedure | OAuth (`manage=update`) | Remove members (by DID). |
 | `listMembers` | query | OAuth (`read_self`) | List the current members of the space and their `read` and `write` access. |
 
-Each member-list entry carries required `read` and `write` booleans, and `putMember` replaces both together. The member list is not part of the `policy` object. It persists across configuration changes and is discarded on [migration](#space-policy) to a different policy.
+Each member-list entry carries required `read` and `write` booleans, and `putMembers` replaces both together. The member list is not part of the `policy` object. It persists across configuration changes and is discarded on [migration](#space-policy) to a different policy.
 
-When `removeMember` removes a member, or `putMember` revokes a member's write access, the authority SHOULD also remove that account from the writer set. Writers tracked under `publicWrite` are not on the member list, but can be explicitly removed with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set). While `publicWrite` is set, a removed writer is tracked again as soon as it writes.
+When `removeMembers` removes a member, or `putMembers` revokes a member's write access, the authority SHOULD also remove that account from the writer set. Writers tracked under `publicWrite` are not on the member list, but can be explicitly removed with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set). While `publicWrite` is set, a removed writer is tracked again as soon as it writes.
 
 ### `managedspace`
 
-`com.atproto.managedspace.policy` defers each user access decision to an external **managing app**. This enables dynamic policies (e.g. follower-gating or paid subscriptions) without the PDS maintaining a materialized member list.
+`com.atproto.managedspace.policy` delegates access decisions to an external **managing app**. This enables dynamic policies (e.g. follower-gating or paid subscriptions) without the PDS maintaining a materialized member list.
 
 | Field | Values | Description |
 |---|---|---|
-| `managingApp` | service identifier (DID + fragment) | Required. The service the authority asks whether to authorize a user. |
+| `managingApp` | `did#serviceId` reference | Required. The service the authority asks for access decisions. |
 | `publishPolicy` | boolean (default false) | [Publish](#publishing-to-readers) the policy to readers. |
 
 | Method | Type | Auth | Description |
 |---|---|---|---|
-| `checkUserAccess` | query | service auth (from the space authority) | Served by the `managingApp` (not the PDS). Asks whether to authorize a user to read or write. |
+| `checkAccess` | query | service auth (from the space authority) | Implemented by the `managingApp` (not the PDS). Returns an account's `read` and `write` access to the space. |
 
-The authority passes the space, the user, the `access` being checked (`read` or `write`), and for reads, the attested `client_id` if one was presented. Write checks carry no client, since `notifyWrite` does not identify the originating app. Because reads and writes are checked separately, the app can express mixed arrangements, such as a paid newsletter that subscribers may read but only the authority writes to.
+The authority passes the space, the account being checked (`repo`), and for reads, the attested `client_id` if one was presented. Write checks carry no client, since `notifyRepoUpdate` does not identify the originating app. The app answers `read` and `write` access as independent values which allows the expression of mixed arrangements, such as a paid newsletter that subscribers may read but only the authority writes to.
 
 Writers approved by the managing app can be explicitly removed from the writer set with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set).
 
@@ -973,7 +973,7 @@ The body has three sections, in this order:
 
 1. **Policy.** A single `policy` key, whose value is the space's policy object.
 2. **Policy state.** Any additional config relating to the policy. Keys are structured like repository keys (e.g. `{NSID}/{rkey}`) and the policy defines their values.
-3. **Writers.** One `writer/{did}` key per account in the writer set. Each value carries all required information to support `listRepos` after migration, including `rev`, `data`, and `spaceRev`.
+3. **Writers.** One `writer/{did}` key per account in the writer set. Each value carries all required information to support `listWriters` after migration, including `rev`, `data`, and `spaceRev`.
 
 Within each section, keys MUST be in strict lexicographic order of the key bytes, with no duplicates.
 
