@@ -413,7 +413,7 @@ The repo host holds the private key. This should be a dedicated keypair rather t
 
 #### Shared secret
 
-For each request, the syncer and repo host need a fresh secret. The syncer generates one from the author's KEM public key, along with a short value called the encapsulation (`enc`), and sends `enc` to the repo host. The repo host recovers the same secret from `enc` using the author's private key.
+For each request, the syncer and repo host need a fresh secret. The syncer derives one from the author's KEM public key and a new ephemeral keypair, and sends the ephemeral public key to the repo host. The repo host derives the same secret from the ephemeral public key and the author's KEM private key.
 
 This uses the [secret export](https://www.rfc-editor.org/rfc/rfc9180#section-6.2) feature of HPKE ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180)), a standard usually used to encrypt messages to a public key. Only the export feature is used here, so nothing is encrypted. The ciphersuite is DHKEM(P-256, HKDF-SHA256) with HKDF-SHA256 and the Export-only AEAD:
 
@@ -428,7 +428,7 @@ enc, shared_secret = SendExportBase(author_public_key, info="atproto-space-mac",
 shared_secret = ReceiveExportBase(enc, author_private_key, info="atproto-space-mac", exporter_context="", L=32)
 ```
 
-With this ciphersuite, `enc` is just a new ephemeral P-256 public key. The syncer sends it as the `keyid` of its [MAC request](#requesting-a-mac), encoded as a `did:key`. Note that HPKE encodes `enc` as an uncompressed point, while `did:key` uses the compressed form.
+With this ciphersuite, HPKE's `enc` is the syncer's ephemeral P-256 public key. The syncer sends it as the `keyid` of its [MAC request](#requesting-a-mac), encoded as a `did:key`. Note that HPKE encodes `enc` as an uncompressed point, while `did:key` uses the compressed form.
 
 The syncer derives a new `shared_secret` for every request, including retries and each page of a paginated response. The repo host derives its copy after authorizing the request.
 
@@ -969,13 +969,13 @@ suite_id = "HPKE" || uint16be(0x0010) || uint16be(0x0001) || uint16be(0xFFFF) //
 LabeledExtract(id, salt, label, ikm)   = HKDF-Extract(salt, "HPKE-v1" || id || label || ikm)
 LabeledExpand(id, prk, label, info, L) = HKDF-Expand(prk, uint16be(L) || "HPKE-v1" || id || label || info, L)
 
-// 1. ECDH. The syncer generates a new ephemeral P-256 keypair, whose public key is enc.
+// 1. ECDH. The syncer generates a new ephemeral P-256 keypair. Its public key is HPKE's enc.
 //    dh is the 32-byte x-coordinate of the shared point; both sides get the same value.
 dh = ECDH(ephemeral_private_key, author_public_key) // on the syncer
-   = ECDH(author_private_key, enc)                  // on the repo host
+   = ECDH(author_private_key, ephemeral_public_key) // on the repo host
 
 eae_prk    = LabeledExtract(kem_id, "", "eae_prk", dh)
-kem_secret = LabeledExpand(kem_id, eae_prk, "shared_secret", enc || author_public_key, 32)
+kem_secret = LabeledExpand(kem_id, eae_prk, "shared_secret", ephemeral_public_key || author_public_key, 32)
 
 // 2. Key schedule. Base mode (0x00), with no pre-shared key.
 psk_id_hash     = LabeledExtract(suite_id, "", "psk_id_hash", "")
