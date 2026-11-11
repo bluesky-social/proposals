@@ -998,15 +998,12 @@ Applications may hold OAuth sessions for multiple accounts. While a [space crede
 
 For example, a [`memberspace`](#memberspace) may publish its membership records. Or a space may grant access to accounts that the space authority follows which requires gating actual space access via a `managedspace`. In either case, the syncing application is responsible for understanding and enforcing this application semantic in the views that it serves.
 
-A space that wants to be served by feeds and other third-party services that are added as "service accounts" to the space should publish its access rules as records.
-
 There are some protocol-level access rules that apply to all space data, and applications must respect them:
 
 - author account status: as with public atproto repositories, space data should not be displayed or distributed for inactive accounts
 - space authority account status: similarly, inactivation of an account impacts all data from all accounts in spaces under their authority
 - deleted data records: same as with public repo records
 - space lifecycle status: syncers are notified for space deletion events
-- removal of author from the space's writer set
 
 The space sync mechanism itself does not notify application services of account status changes. Applications are responsible for synchronizing that separately.
 
