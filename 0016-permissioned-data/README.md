@@ -422,15 +422,15 @@ This uses the [secret export](https://www.rfc-editor.org/rfc/rfc9180#section-6.2
 // info is a fixed label tying the secret to this protocol.
 
 // on the syncer
-enc, shared_secret = SendExportBase(author_public_key, info="atproto-space-mac", exporter_context="", L=32)
+enc, shared_secret = SendExportBase(author_public_key, info="atproto-mac", exporter_context="", L=32)
 
 // on the repo host
-shared_secret = ReceiveExportBase(enc, author_private_key, info="atproto-space-mac", exporter_context="", L=32)
+shared_secret = ReceiveExportBase(enc, author_private_key, info="atproto-mac", exporter_context="", L=32)
 ```
 
 With this ciphersuite, HPKE's `enc` is the syncer's ephemeral P-256 public key. The syncer sends it as the `keyid` of its [MAC request](#requesting-a-mac), encoded as a `did:key`. Note that HPKE encodes `enc` as an uncompressed point, while `did:key` uses the compressed form.
 
-The syncer derives a new `shared_secret` for every request, including retries and each page of a paginated response. The repo host derives its copy after authorizing the request.
+The syncer should derive a new `shared_secret` for every request, including retries and each page of a paginated response. The repo host does not enforce this. The repo host derives its copy after authorizing the request.
 
 Implementers who would rather not depend on an HPKE library can follow the equivalent ECDH and HKDF steps in the [appendix](#appendix-shared-secret-without-hpke).
 
@@ -979,7 +979,7 @@ kem_secret = LabeledExpand(kem_id, eae_prk, "shared_secret", ephemeral_public_ke
 
 // 2. Key schedule. Base mode (0x00), with no pre-shared key.
 psk_id_hash     = LabeledExtract(suite_id, "", "psk_id_hash", "")
-info_hash       = LabeledExtract(suite_id, "", "info_hash", "atproto-space-mac")
+info_hash       = LabeledExtract(suite_id, "", "info_hash", "atproto-mac")
 context         = 0x00 || psk_id_hash || info_hash
 secret          = LabeledExtract(suite_id, kem_secret, "secret", "")
 exporter_secret = LabeledExpand(suite_id, secret, "exp", context, 32)
