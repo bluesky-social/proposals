@@ -460,7 +460,7 @@ Accept-Signature: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";tag="a
 
 `keyid` is the syncer's ephemeral P-256 public key as a `did:key`. `tag` identifies the MAC profile, which determines the covered header. The request may also include `alg`, but no other parameters.
 
-The host ignores any requested signatures with other tags. It responds with the covered header and a signature using the requested label and parameters, and lists `Accept-Signature` in `Vary`:
+The host ignores any requested signatures with other tags. It returns an error if `Accept-Signature` is missing or malformed, contains more than one request with the profile's tag, requests other parameters, or has an invalid key. Otherwise, it responds with the covered header and a signature using the requested label and parameters, and lists `Accept-Signature` in `Vary`:
 
 ```http
 Atproto-Space-Commit: ver=1, repo="did:example:alice", space="at://did:example:forum/space/com.atmoboards.forum/general", rev="3mwcj3b6uak2f", data=:q3J0...=:
@@ -469,9 +469,9 @@ Signature: mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
 Vary: Accept-Signature
 ```
 
-Covered headers are [Structured Field Dictionaries](https://www.rfc-editor.org/rfc/rfc9651#section-3.2) and are signed with the `sf` flag, which indicates they must be normalized prior to signing. The host returns an error if the header is missing or malformed, contains more than one request with the profile's tag, requests other parameters, or has an invalid key.
+Covered headers are [Structured Field Dictionaries](https://www.rfc-editor.org/rfc/rfc9651#section-3.2) and are signed with the `sf` flag, which indicates they must be normalized prior to signing.
 
-The syncer checks the MAC the same way a host checks a [space credential's signature](#presenting-a-space-credential). It requires exactly one signature with the profile's `tag`, covering exactly the profile's header, with `keyid` matching its request, if present. If verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
+The syncer checks the MAC the same way a host checks a [space credential's signature](#presenting-a-space-credential). It requires exactly one signature with the profile's `tag`, covering exactly the profile's header. If the signature has a `keyid`, it must match the request. If verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
 
 #### Commit MAC
 
@@ -487,7 +487,7 @@ The syncer checks that the header matches the commit in the response body, and t
 Atproto-Space-Record: uri="at://did:example:forum/space/com.atmoboards.forum/general/did:example:alice/com.atmoboards.post/3mwcj3b6uak2f", cid="bafyrei..."
 ```
 
-The syncer checks that the URI matches the request and that the CID matches the returned record.
+The syncer checks that the URI matches the request, computes the CID of the returned record, and checks that it matches the header's CID.
 
 ### Repo serialization
 
@@ -525,7 +525,7 @@ The body contains every record in the repo:
 
 Pairs continue until the end byte (`0x00`); an empty repo has none. A consumer can reconstruct and verify the snapshot as a stream:
 
-1. Validate the metadata, including `$type` and the commit version, and check that `repo` and `space` match the requested repo. Verify the [commit MAC](#commit-mac). The commit's `data` is then trusted.
+1. Validate the metadata, including `$type` and the commit version, and check that `repo` and `space` match the requested repo. Verify the [commit MAC](#commit-mac) and check that its header matches the metadata. The commit's `rev` and `data` are then trusted.
 2. Starting with an empty [set hash](#commit-digest), read each path/record pair, validate the path and record encoding, compute the record's CID, and fold `{collection}/{rkey}/{record_cid}` into the running set hash.
 3. Once every record has been streamed, compare `sha256(state)` against the commit's `data`. Only a match establishes that the complete repo has been received.
 
