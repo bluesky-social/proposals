@@ -168,7 +168,7 @@ The construction uses [HTTP Message Signatures](https://www.rfc-editor.org/rfc/r
 
 The application should generate a new keypair each time it requests a new space credential. The private key need only be retained for the lifetime of the space credential and should be discarded when the credential expires or is deleted.
 
-Signatures use the `ecdsa-p256-sha256` algorithm defined by [RFC 9421 Section 3.3.4](https://www.rfc-editor.org/rfc/rfc9421#section-3.3.4). The signature value is the 64-octet concatenation `r || s`, with each integer encoded as a zero-padded 32-octet big-endian value. This is the same binary encoding used by atproto commit signatures. Unlike atproto commit signatures, low-S normalization is not required, and verifiers MUST accept both low-S and high-S signatures.
+Signatures use the `ecdsa-p256-sha256` algorithm defined by [RFC 9421 Section 3.3.4](https://www.rfc-editor.org/rfc/rfc9421#section-3.3.4). If an `alg` parameter is present, it MUST be `ecdsa-p256-sha256`. The signature value is the 64-octet concatenation `r || s`, with each integer encoded as a zero-padded 32-octet big-endian value. This is the same binary encoding used by atproto commit signatures. Unlike atproto commit signatures, low-S normalization is not required, and verifiers MUST accept both low-S and high-S signatures.
 
 ### Delegation token
 
@@ -286,8 +286,8 @@ When using the space credential to make authorized requests, the space credentia
 ```http
 Authorization: Atproto-Space-Credential <space-credential>
 Atproto-Space-Audience: did:plc:repoOwner
-Signature-Input: atproto-space-credential=("authorization" "atproto-space-audience");tag="atproto-space-credential"
-Signature: atproto-space-credential=:wNmSUA...:
+Signature-Input: sig=("authorization" "atproto-space-audience");tag="atproto-space-credential"
+Signature: sig=:wNmSUA...:
 ```
 
 When syncing a repository, `Atproto-Space-Audience` is the DID of the account that the repo belongs to. If the space credential is being used to make a request against the space host, then `Atproto-Space-Audience` is the space authority DID.
@@ -296,11 +296,14 @@ A host receiving a space credential MUST validate the authorization token and HT
 
 - require an `Authorization` header using the `Atproto-Space-Credential` scheme and an `Atproto-Space-Audience` header
 - validate the space credential, including its type, issuer, signature, subject space, and expiration
-- require the `atproto-space-credential` signature's covered component list to be exactly `("authorization" "atproto-space-audience")`, in that order
-- require the signature's `tag` to be `atproto-space-credential`
+- require exactly one signature with `tag` set to `atproto-space-credential`
+- require its covered component list to be exactly `("authorization" "atproto-space-audience")`, in that order
+- if the signature has a `keyid` parameter, require it to equal the space credential's `cnf.kid`
 - require the space credential's `cnf.kid` to be a P-256 `did:key`
 - verify the signature against `cnf.kid` using `ecdsa-p256-sha256`
 - verify that `Atproto-Space-Audience` equals the audience DID derived from the request
+
+The host finds the signature by its `tag` rather than its label, since intermediaries may relabel signatures. Any other signature parameters are ignored.
 
 The signature does not bind the HTTP method or URI. It MAY be reused with the same authorization token and audience DID until the token expires. Replay against the same audience is allowed.
 
@@ -397,7 +400,7 @@ Atproto roots authority in DIDs rather than network locations. Space repos there
 
 Unlike public broadcast data, permissioned data should not carry proof of authorship that survives a leak outside its access boundary, so space repos do not use signatures. Instead, the syncer and repo host establish an ephemeral shared secret, and the host uses it to compute a MAC (Message Authentication Code) over the commit or record. The syncer checks the MAC with the same secret. Since the syncer could have computed that MAC itself, it is unable to prove anything to anyone else.
 
-MACs are not part of the serialized repo data. They are carried in an HTTP header described [below](#authenticity-headers).
+MACs are not part of the serialized repo data. Instead, the host returns them as [HTTP headers](#requesting-a-mac) on its responses.
 
 #### KEM key
 
@@ -412,93 +415,80 @@ The entry MUST have:
 
 The repo host holds the private key. This should be a dedicated keypair rather than a reuse of the `#atproto` signing key.
 
-The construction below is ECDH framed as a KEM. ECDH is not post-quantum secure, and the KEM framing lets a future version swap in a post-quantum KEM such as ML-KEM.
-
 #### Shared secret
 
-To request a MAC, the syncer:
+For each request, the syncer and repo host need a fresh secret. The syncer derives one from the author's KEM public key and a new ephemeral keypair, and sends the ephemeral public key to the repo host. The repo host derives the same secret from the ephemeral public key and the author's KEM private key.
 
-1. Resolves the author's `#atproto_kem` public key.
-2. Generates a new ephemeral P-256 keypair for this request.
-3. Performs ECDH using the new private key and the author's public key.
-4. Derives a 32-byte `shared_secret` from the ECDH result, as shown below.
-5. Keeps `shared_secret` and sends its new public key in the request header's `key_share` field.
-
-The syncer generates a new keypair for every request, including retries and each page of a paginated response.
-
-After authorizing the request, the repo host decodes the syncer's public key from `key_share`, performs ECDH using the author's private key, and derives the same `shared_secret`.
-
-Both sides derive `shared_secret` with HKDF-SHA256. The key encoding and HKDF inputs follow [RFC 9180 §4.1](https://www.rfc-editor.org/rfc/rfc9180#section-4.1).
+This uses the [secret export](https://www.rfc-editor.org/rfc/rfc9180#section-6.2) feature of HPKE ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180)), a standard usually used to encrypt messages to a public key. Only the export feature is used here, so nothing is encrypted. The ciphersuite is DHKEM(P-256, HKDF-SHA256) with HKDF-SHA256 and the Export-only AEAD:
 
 ```
-// The 32-byte x-coordinate of the shared point; both sides get the same value.
-dh = ECDH(syncer_private_key, author_public_key) // on the syncer
-   = ECDH(author_private_key, syncer_public_key) // on the repo host
+// HPKE base mode, with KEM 0x0010, KDF 0x0001, and AEAD 0xFFFF.
+// info is a fixed label tying the secret to this protocol.
 
-// Uncompressed points (following RFC 9180), even though did:key and multikey use the compressed form.
-syncer_key_bytes = 0x04 || syncer_public_key.x || syncer_public_key.y
-author_key_bytes = 0x04 || author_public_key.x || author_public_key.y
-keys = syncer_key_bytes || author_key_bytes
+// on the syncer
+enc, shared_secret = SendExportBase(author_public_key, info="atproto-mac", exporter_context="", L=32)
 
-// These are fixed labels from RFC 9180; 0x0010 identifies P-256 DHKEM.
-prefix = "HPKE-v1" || "KEM" || uint16be(0x0010)
-input = prefix || "eae_prk" || dh
-info = uint16be(32) || prefix || "shared_secret" || keys
-
-// Run HKDF with an empty salt and ask for 32 bytes of key material.
-shared_secret = HKDF-SHA256(input, salt="", info=info, length=32)
+// on the repo host
+shared_secret = ReceiveExportBase(enc, author_private_key, info="atproto-mac", exporter_context="", L=32)
 ```
 
-#### Authenticity headers
+With this ciphersuite, HPKE's `enc` is the syncer's ephemeral P-256 public key. The syncer sends it as the `keyid` of its [MAC request](#requesting-a-mac), encoded as a `did:key`. Note that HPKE encodes `enc` as an uncompressed point, while `did:key` uses the compressed form.
 
-Methods that return a [commit](#commit-mac) or [record](#record-mac) require a MAC when called with a space credential. The syncer requests one with an `Atproto-Space-Want-Mac` header. Its value is a [Structured Field Dictionary](https://www.rfc-editor.org/rfc/rfc9651#section-3.2):
+The syncer should derive a new `shared_secret` for every request, including retries and each page of a paginated response. The repo host does not enforce this. The repo host derives its copy after authorizing the request.
+
+Implementers who would rather not depend on an HPKE library can follow the equivalent ECDH and HKDF steps in the [appendix](#appendix-shared-secret-without-hpke).
+
+This KEM is not post-quantum secure. A future version may swap in a post-quantum KEM such as ML-KEM.
+
+#### Requesting a MAC
+
+Methods that return a [commit](#commit-mac) or [record](#record-mac) require a MAC when called with a space credential. MACs are [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) using the `hmac-sha256` algorithm defined by [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421#section-3.3.3), keyed with `shared_secret`. If an `alg` parameter is present, it MUST be `hmac-sha256`.
+
+The syncer requests a MAC with an `Accept-Signature` header:
 
 ```http
-Atproto-Space-Want-Mac: type="atproto-space-repo", ver=1, key_share="did:key:zDna..."
+Accept-Signature: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";tag="atproto-space-repo"
 ```
 
-`key_share` is the syncer's ephemeral P-256 public key as a `did:key`, abbreviated above.
+`keyid` is the syncer's ephemeral P-256 public key as a `did:key`. `tag` identifies the MAC profile, which determines the covered header. The request may also include `alg`, but no other parameters.
 
-The host returns the 32-byte MAC as a base64 byte sequence in an `Atproto-Space-Mac` response header, and lists the request header in `Vary`:
+The host ignores any requested signatures with other tags. It returns an error if `Accept-Signature` is missing or malformed, contains more than one request with the profile's tag, requests other parameters, or has an invalid key. Otherwise, it responds with the covered header and a signature using the requested label and parameters, and lists `Accept-Signature` in `Vary`:
 
 ```http
-Atproto-Space-Mac: type="atproto-space-repo", ver=1, mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
-Vary: Atproto-Space-Want-Mac
+Atproto-Space-Commit: ver=1, repo="did:example:alice", space="at://did:example:forum/space/com.atmoboards.forum/general", rev="3mwcj3b6uak2f", data=:q3J0...=:
+Signature-Input: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";tag="atproto-space-repo"
+Signature: mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
+Vary: Accept-Signature
 ```
 
-The fields shown are required. The response's `type` and `ver` match the request's. Missing or malformed headers, unsupported types or versions, and invalid keys are errors.
+Covered headers are [Structured Field Dictionaries](https://www.rfc-editor.org/rfc/rfc9651#section-3.2) and are signed with the `sf` flag, which indicates they must be normalized prior to signing.
 
-If MAC verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
+The syncer checks the MAC the same way a host checks a [space credential's signature](#presenting-a-space-credential). It requires exactly one signature with the profile's `tag`, covering exactly the profile's header. If the signature has a `keyid`, it must match the request. If verification fails, syncers should refresh the author's DID document before retrying with a new keypair.
 
 #### Commit MAC
 
-`getLatestCommit`, `getRepo`, and `listRepoOps` responses carry a [commit](#space-repos). They use `type="atproto-space-repo"`, and `ver` is the commit's `ver`. The MAC covers the commit's `space`, `repo`, `rev`, and `data`. The string fields are UTF-8, each prefixed with its byte length as a big-endian `uint16`.
+`getLatestCommit`, `getRepo`, and `listRepoOps` responses carry a [commit](#space-repos). They use the `atproto-space-repo` profile, which covers an `Atproto-Space-Commit` header containing the commit's fields, as shown above.
 
-```
-context = "atproto-space-repo-v1"   // protocol tag: "{type}-v{ver}"
-   || uint16be(len(space)) || space // space URI (at://authority/space/type/skey)
-   || uint16be(len(repo))  || repo  // author DID of the repo
-   || uint16be(len(rev))   || rev   // commit revision (TID)
-
-mac = HMAC-SHA256(shared_secret, context || data)
-```
-
-The syncer checks that the commit's `repo` and `space` match the requested repo, then recomputes the MAC and compares it with `mac`.
-
-A `listRepoOps` page without a commit has no response header. Its operations are checked when the final page's commit `data` is compared against the syncer's running set hash.
+The syncer checks that the header matches the commit in the response body, and that `repo` and `space` match the requested repo.
 
 #### Record MAC
 
-`getRecord` responses use `type="atproto-space-record"` and `ver=1`. The MAC covers the record's full [URI](#addressing) and CID:
+`getRecord` responses use the `atproto-space-record` profile, which covers an `Atproto-Space-Record` header containing the record's full [URI](#addressing) and CID. The syncer requests it with:
 
-```
-context = "atproto-space-record-v1" // protocol tag: "{type}-v{ver}"
-   || uint16be(len(uri)) || uri     // full record URI, UTF-8
-
-mac = HMAC-SHA256(shared_secret, context || record_cid_bytes)
+```http
+Accept-Signature: mac=("atproto-space-record";sf);keyid="did:key:zDna...";tag="atproto-space-record"
 ```
 
-`record_cid_bytes` is the binary CID encoding. The syncer checks that the URI matches the request, verifies the MAC in constant time, then checks the record's DAG-CBOR encoding against the CID.
+And the host responds with:
+
+```http
+Atproto-Space-Record: uri="at://did:example:forum/space/com.atmoboards.forum/general/did:example:alice/com.atmoboards.post/3mwcj3b6uak2f", cid="bafyrei..."
+Signature-Input: mac=("atproto-space-record";sf);keyid="did:key:zDna...";tag="atproto-space-record"
+Signature: mac=:ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=:
+Vary: Accept-Signature
+```
+
+The syncer checks that the URI matches the request, computes the CID of the returned record, and checks that it matches the header's CID.
 
 ### Repo serialization
 
@@ -514,7 +504,7 @@ A STAR file takes the following form:
 
 The magic bytes are `0x2A 0x6C 0x01 0x00`. Each `len` is an unsigned varint giving the byte length of the following item. Each pair is preceded by a `0x01` byte, and the archive ends with a `0x00` byte. Framing and parsing follow STAR's rules.
 
-The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map containing `$type` set to `atproto-space-repo` and all fields of the [commit](#space-repos). The commit's MAC is carried in the response's [`Atproto-Space-Mac` header](#authenticity-headers), not in the metadata.
+The profile's metadata is a [DRISL](https://dasl.ing/drisl.html) map containing `$type` set to `atproto-space-repo` and all fields of the [commit](#space-repos). The commit's MAC is carried in the response's [HTTP signature](#requesting-a-mac), not in the metadata.
 
 Here is an example metadata object for a space repo:
 ```json
@@ -536,7 +526,7 @@ The body contains every record in the repo:
 
 Pairs continue until the end byte (`0x00`); an empty repo has none. A consumer can reconstruct and verify the snapshot as a stream:
 
-1. Validate the metadata, including `$type` and the commit version, and check that `repo` and `space` match the requested repo. Verify the [commit MAC](#commit-mac) from the response header. The commit's `data` is then trusted.
+1. Validate the metadata, including `$type` and the commit version, and check that `repo` and `space` match the requested repo. Verify the [commit MAC](#commit-mac) and check that its header matches the metadata. The commit's `rev` and `data` are then trusted.
 2. Starting with an empty [set hash](#commit-digest), read each path/record pair, validate the path and record encoding, compute the record's CID, and fold `{collection}/{rkey}/{record_cid}` into the running set hash.
 3. Once every record has been streamed, compare `sha256(state)` against the commit's `data`. Only a match establishes that the complete repo has been received.
 
@@ -564,7 +554,7 @@ To advance, a syncer calls `com.atproto.space.listRepoOps` with a `since` revisi
 
 By default `listRepoOps` inlines each created or updated record's value alongside its operation, so a syncer advances in a single call without a `getRecord` round-trip per write. Only the current value for a path is inlined. If a record has been updated or deleted by a later operation, the host omits the intermediate (now stale) values. A syncer may set `excludeValues` to receive only the operation metadata (for example, to drive selective `getRecord` calls).
 
-If a given oplog response includes the last available operation that occurred to a repo, then the response must also include the member's current [commit](#space-repos). The syncer verifies the response MAC and compares the commit's `data` against its own running set hash. If they match, the syncer is fully in sync. If they do not, the syncer has diverged and must fall back to a recovery process.
+Every oplog response must include the member's current [commit](#space-repos). After applying the last page (the one without a `cursor`), the syncer verifies the response MAC and compares the commit's `data` against its own running set hash. If they match, the syncer is fully in sync. If they do not, the syncer has diverged and must fall back to a recovery process.
 
 Sync is self-healing because its correctness rests on the set hash comparison rather than on receiving every operation. A missed operation is detected on a subsequent sync. A total disjunction in repository history is also recognizable, and is recovered from by syncing the repository contents in their entirety.
 
@@ -1046,10 +1036,47 @@ An account's participation in a space is tied to the same DID as its public atpr
 
 **Migration.** Moving space repos between hosts works much like migrating a public repository, with some extra state to carry when the account is a space authority. See [Account migration](#account-migration).
 
-**Key rotation.** The account rotates its KEM key by replacing `#atproto_kem` in its DID document. Requests using the old key may fail MAC verification and need to [retry](#authenticity-headers). This does not change repo hashes or revisions.
+**Key rotation.** The account rotates its KEM key by replacing `#atproto_kem` in its DID document. Requests using the old key may fail MAC verification and need to [retry](#requesting-a-mac). This does not change repo hashes or revisions.
 
 **Deactivation & deletion.** Deactivation and deletion function exactly as they do for [public broadcast](https://atproto.com/specs/account#hosting-status). If an account is deleted, downstream services are expected to delete all data associated with the account, whether public or in spaces. If an account is deactivated, downstream services are expected to stop serving all data associated with it, whether public or in spaces.
 
 If a space authority is taken down or deactivated, its spaces are suspended. The space host answers `getSpaceCredential` and `listWriters` with `RepoTakendown` or `RepoDeactivated`. Credentials already issued remain valid until they expire, members' repos are unaffected, and the spaces resume if the account is reinstated. Unlike [space deletion](#space-deletion), this is not a signal for syncers to drop the space's data.
 
 **Identity & account events.** Applications currently learn about changes to an account's status or identity (such as its signing key, KEM key, and handle) via events on the firehose (`com.atproto.sync.subscribeRepos`). These same account updates apply to space repos in exactly the same manner. This means an application that syncs only space repos, and no public repositories, still needs to subscribe to a firehose to receive `#account` and `#identity` events. Future work may include an additional subscription endpoint that broadcasts only those two event types without the full stream of public repository commits.
+
+## Appendix: Shared secret without HPKE
+
+This section is non-normative. It expands the [shared secret](#shared-secret) computation into plain ECDH and HKDF-SHA256 calls, for implementers who would rather not depend on an HPKE library. The result is identical, and can be checked against the export-only P-256 entry in the [HPKE test vectors](https://github.com/cfrg/draft-irtf-cfrg-hpke/blob/master/test-vectors.json).
+
+There are three steps. ECDH between a new ephemeral key and the author's key produces a raw secret. A key schedule then mixes in the `info` label. Finally, the 32-byte `shared_secret` is exported from the result.
+
+```
+// Strings are ASCII, || is concatenation, uint16be(n) is n as 2 big-endian bytes,
+// and "" is an empty byte string. P-256 public keys are uncompressed (0x04 || x || y),
+// even though did:key uses the compressed form.
+
+// HPKE labels every HKDF input with a version and the IDs of the algorithms in use.
+kem_id   = "KEM" || uint16be(0x0010)                                          // DHKEM(P-256, HKDF-SHA256)
+suite_id = "HPKE" || uint16be(0x0010) || uint16be(0x0001) || uint16be(0xFFFF) // + HKDF-SHA256, Export-only
+
+LabeledExtract(id, salt, label, ikm)   = HKDF-Extract(salt, "HPKE-v1" || id || label || ikm)
+LabeledExpand(id, prk, label, info, L) = HKDF-Expand(prk, uint16be(L) || "HPKE-v1" || id || label || info, L)
+
+// 1. ECDH. The syncer generates a new ephemeral P-256 keypair. Its public key is HPKE's enc.
+//    dh is the 32-byte x-coordinate of the shared point; both sides get the same value.
+dh = ECDH(ephemeral_private_key, author_public_key) // on the syncer
+   = ECDH(author_private_key, ephemeral_public_key) // on the repo host
+
+eae_prk    = LabeledExtract(kem_id, "", "eae_prk", dh)
+kem_secret = LabeledExpand(kem_id, eae_prk, "shared_secret", ephemeral_public_key || author_public_key, 32)
+
+// 2. Key schedule. Base mode (0x00), with no pre-shared key.
+psk_id_hash     = LabeledExtract(suite_id, "", "psk_id_hash", "")
+info_hash       = LabeledExtract(suite_id, "", "info_hash", "atproto-mac")
+context         = 0x00 || psk_id_hash || info_hash
+secret          = LabeledExtract(suite_id, kem_secret, "secret", "")
+exporter_secret = LabeledExpand(suite_id, secret, "exp", context, 32)
+
+// 3. Export, with an empty exporter context.
+shared_secret = LabeledExpand(suite_id, exporter_secret, "sec", "", 32)
+```
