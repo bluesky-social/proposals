@@ -118,8 +118,8 @@ A space type NSID resolves to a **space type declaration**: a Lexicon definition
       "type": "space",
       "description": "A discussion forum",
       "key": "any",
-      "name": "AtmoBoards Forum",
-      "name:lang": { "es": "Foro AtmoBoards", "ja": "AtmoBoards 掲示板" },
+      "title": "AtmoBoards Forum",
+      "title:lang": { "es": "Foro AtmoBoards", "ja": "AtmoBoards 掲示板" },
       "collections": ["com.atmoboards.thread", "com.atmoboards.reply", "org.example.reaction"]
     }
   }
@@ -131,8 +131,8 @@ A space type NSID resolves to a **space type declaration**: a Lexicon definition
 | `type` | `"space"` | yes | Marks this as a space type declaration. Must be the `main` definition. |
 | `description` | string | no | Description of the space type for developers. Not shown to users. |
 | `key` | string | yes | Specifies the recommended space key type (similar to [record key types](https://atproto.com/specs/record-key#record-key-type-tid)) |
-| `name` | string | yes | Short human-readable name for the space type, shown to users on consent screens. |
-| `name:lang` | map<lang, string> | no | Localized `name` values by language code. |
+| `title` | string | no | Short human-readable name for the space type, shown to users on consent screens. |
+| `title:lang` | map<lang, string> | no | Localized `title` values by language code. |
 | `collections` | array of NSID | yes | Collections clients should expect in a space of this type. |
 
 The `collections` field is the default `collection` set for a [`space:` permission](#oauth-scopes) for spaces of this type. This can impact which records can be read and written to by default, though clients may request broader permissions beyond this set. The `collections` field may *not* include a wildcard (`*`). As shown in the example above, the `collections` field may contain record types from any NSID domain, not only those under the same domain authority as the space type NSID.
@@ -582,7 +582,7 @@ A syncer may discover which blobs a repo references through `com.atproto.space.l
 
 Write notifications inform syncers that a repo has been updated, so they can pull promptly instead of continuously polling for updates. A write notification contains no record data, and states only that a given repo in a given space has reached a new `rev` and `data`.
 
-Space hosts receive write notifications from repo hosts, and sequence updates over the entire space. A syncer subscribes to notifications by calling `com.atproto.space.registerNotify` on the space host (using a space credential for authorization) and subsequently receives notifications for all repos. Registrations have a fixed time duration, indicated by an expiration time in the API response body. A registration can be withdrawn with `com.atproto.space.unregisterNotify`, or simply left to expire.
+Space hosts receive write notifications from repo hosts, and sequence updates over the entire space. A syncer subscribes to notifications by calling `com.atproto.space.registerNotify` on the space host (using a space credential for authorization) and subsequently receives notifications for all repos. Registrations have a fixed time duration, indicated by an expiration time in the API response body. A registration can be withdrawn with `com.atproto.space.unregisterNotify` (using service auth from the registered service), or simply left to expire.
 
 When an account writes to a space repo, their PDS sends a `com.atproto.space.notifyRepoUpdate` containing the updated repo's `rev` and `data` to the space host associated with the space authority (unless the authority is the repo account itself). Notification between repo hosts and space hosts is automatic and does not require registration. The space host should reject write notifications for repos which are not authorized to write to the space. Repo hosts are responsible for reliably updating the space host with the latest repo state, and should retry network failures and transient HTTP statuses, but stop on permanent HTTP errors. Notification API calls are authenticated using service auth. The space host is not expected to verify the integrity or authenticity of the repo `data`. Similar to public repository synchronization, the repo revision (`rev`) is a timestamp identifier (TID) which must increase monotonically (updates with a lower or equal revision should be ignored), and must not correspond to a future timestamp (beyond a short clock skew window).
 
@@ -750,7 +750,7 @@ The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.
 
 ### Consent
 
-A `space:` scope is presented to the user on the OAuth consent screen and requires user-legible text. Each space `type` resolves to a [space type declaration](#space-type-declarations). The consent screen then displays the declaration's `name` (e.g. "AtmoBoards Forum") in place of the raw NSID.
+A `space:` scope is presented to the user on the OAuth consent screen and requires user-legible text. Each space `type` resolves to a [space type declaration](#space-type-declarations). The consent screen then displays the declaration's `title` (e.g. "AtmoBoards Forum") in place of the raw NSID, falling back to the NSID if no `title` is set.
 
 If a particular `authority` DID is specified in a scope, it should be presented to the user as the bidirectionally linked handle associated with the DID. If no handle bidirectionally validates, then the DID itself should be shown. An `authority` of `self` refers to the user's own account and needs no such presentation.
 
@@ -823,7 +823,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `exportSpaceMeta` | host | query | OAuth `read_self` | Download a space's host-side state as a [space meta archive](#space-meta-archive). |
 | `importSpaceMeta` | pds | procedure | OAuth (`manage=create` and `manage=update`) | Import a space from a [space meta archive](#space-meta-archive) during [account migration](#account-migration). |
 | `registerNotify` | host | procedure | space credential | Register a service to be notified of updates to the whole space. |
-| `unregisterNotify` | host | procedure | space credential | Withdraw a `registerNotify` registration. |
+| `unregisterNotify` | host | procedure | service auth | Withdraw a `registerNotify` registration. |
 | `notifyRepoUpdate` | syncer/host | procedure | service auth | Notify that a repo advanced, with its current `rev` and `data`. Sent by a repo host to the space host, and forwarded by the space host to registered syncers. |
 | `notifySpaceStatus` | syncer | procedure | service auth | Notify a syncer of a change in a space's status. A `deleted` space's data should be dropped. Sent by the authority to the syncers registered for the space. |
 | `notifyCredentialsRevoked` | repo | procedure | service auth | Notify a repo host that the authority has revoked one or more space credentials, identified by `jti`. |
@@ -971,7 +971,7 @@ The body has three sections, in this order:
 
 1. **Policy.** A single `policy` key, whose value is the space's policy object.
 2. **Policy state.** Any additional config relating to the policy. Keys are structured like repository keys (e.g. `{NSID}/{rkey}`) and the policy defines their values.
-3. **Writers.** One `writer/{did}` key per account in the writer set. Each value carries all required information to support `listWriters` after migration, including `rev`, `data`, and `spaceRev`.
+3. **Writers.** One `writer/{did}` key per account in the writer set. Each value carries all required information to support `listWriters` after migration, including `repoRev`, `data`, and `spaceRev`.
 
 Within each section, keys MUST be in strict lexicographic order of the key bytes, with no duplicates.
 
@@ -980,8 +980,8 @@ policy                                             → { "$type": "com.atproto.m
 com.atproto.memberspace.member/did:example:alice   → { "$type": "com.atproto.memberspace.member", "read": true, "write": true }
 com.atproto.memberspace.member/did:example:bob     → { "$type": "com.atproto.memberspace.member", "read": true, "write": true }
 com.atproto.memberspace.member/did:example:carol   → { "$type": "com.atproto.memberspace.member", "read": true, "write": false }
-writer/did:example:alice                           → { "rev": "3mwdj...", "data": 0x..., "spaceRev": "3mwdk..." }
-writer/did:example:bob                             → { "rev": "3mwdj...", "data": 0x..., "spaceRev": "3mwdk..." }
+writer/did:example:alice                           → { "repoRev": "3mwdj...", "data": 0x..., "spaceRev": "3mwdk..." }
+writer/did:example:bob                             → { "repoRev": "3mwdj...", "data": 0x..., "spaceRev": "3mwdk..." }
 ```
 
 The importing host MUST reject the archive on a parse error, a missing, duplicate, or out-of-order key, or a policy it doesn't implement (`UnsupportedPolicy`). It MUST also reject a policy state key it doesn't recognize, rather than silently dropping access state.
