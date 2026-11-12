@@ -362,13 +362,13 @@ Each space repo is summarized by a **commit**, which lets a syncer check whether
 
 ### Repo lifecycle
 
-A user's space repo is automatically created when they first write a record to that space. No separate repo-creation operation is needed. When the space authority is another DID, the user's PDS does not need to check whether the space exists before accepting the write. If the user is also the space authority (the space authority DID is the user's own DID), the space must already exist. 
+A user's space repo is automatically created when they first write a record to that space. No separate repo-creation operation is needed. When the space authority is another DID, the user's PDS does not need to check whether the space exists before accepting the write. If the user is also the space authority (the space authority DID is the user's own DID), the space must already exist.
 
-There is no space repo deletion operation. Instead, an empty space repo and a nonexistent one are treated as equivalent. Space repos are cleared rather than deleted because the repo needs to stay around in the writer set, and the host needs to answering sync requests with a valid commit showing that the records are gone.
+There is no space repo deletion operation. Instead, an empty space repo and a nonexistent one are treated as equivalent. Space repos are cleared rather than deleted because the repo needs to stay around in the writer set, and the host needs to answer sync requests with a valid commit showing that the records are gone.
 
-A space repo can be cleared all at once with `com.atproto.space.clearRecords`. The host deletes every record and advances the repo to a new `rev` with the empty repo's digest. The empty LtHash state is all zeroes, so an empty repo's `data` is always `e5a00aa9991ac8a5ee3109844d84a55583bd20572ad3ffcd42792f3c36b183ad`. The host then simply clears the operation log and sends a [write notification](#write-notifications) to the space host.
+A space repo can be cleared all at once with `com.atproto.space.clearRecords`. The host deletes every record, other than any [published](#publishing-to-readers) configuration records in the authority's repo, and advances the repo to a new `rev`. The empty LtHash state is all zeroes, so an empty repo's `data` is always `e5a00aa9991ac8a5ee3109844d84a55583bd20572ad3ffcd42792f3c36b183ad`. The host then simply clears the operation log and sends a [write notification](#write-notifications) to the space host.
 
-Writing a record to the space again recreates the repo under the same rules above. Deleting a repo does not delete the space itself (see [Space deletion](#space-deletion)).
+Writing a record to the space again recreates the repo under the same rules above. Clearing a repo does not delete the space itself (see [Space deletion](#space-deletion)).
 
 A repo host MAY garbage collect an empty space repo, discarding its commit and any other remaining state. This may happen as routine cleanup or during [account migration](#account-migration), where empty repos need not be carried over to the new host. The host SHOULD wait at least 72 hrs before collecting a cleared repo, to give the clear time to propagate to the space host and to syncers. Once collected, the host responds to requests for the repo as if it never existed, and syncers treat this the same as an empty repo. No write notification is sent on garbage collection.
 
@@ -444,12 +444,12 @@ This KEM is not post-quantum secure. A future version may swap in a post-quantum
 
 #### Requesting a MAC
 
-Methods that return a [commit](#commit-mac) or [record](#record-mac) require a MAC when called with a space credential. MACs are [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) using the `hmac-sha256` algorithm defined by [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421#section-3.3.3), keyed with `shared_secret`. If an `alg` parameter is present, it MUST be `hmac-sha256`.
+Methods that return a [commit](#commit-mac) or a single [record](#record-mac) require a MAC when called with a space credential. MACs are [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) using the `hmac-sha256` algorithm defined by [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421#section-3.3.3), keyed with `shared_secret`. If an `alg` parameter is present, it MUST be `hmac-sha256`.
 
 The syncer requests a MAC with an `Accept-Signature` header:
 
 ```http
-Accept-Signature: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";tag="atproto-space-repo"
+Accept-Signature: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";tag="atproto-space-commit"
 ```
 
 `keyid` is the syncer's ephemeral P-256 public key as a `did:key`. `tag` identifies the MAC profile, which determines the covered header. The request may also include `alg`, but no other parameters.
@@ -458,7 +458,7 @@ The host ignores any requested signatures with other tags. It returns an error i
 
 ```http
 Atproto-Space-Commit: ver=1, repo="did:example:alice", space="at://did:example:forum/space/com.atmoboards.forum/general", rev="3mwcj3b6uak2f", data=:q3J0...=:
-Signature-Input: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";tag="atproto-space-repo"
+Signature-Input: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";tag="atproto-space-commit"
 Signature: mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
 Vary: Accept-Signature
 ```
@@ -469,7 +469,7 @@ The syncer checks the MAC the same way a host checks a [space credential's signa
 
 #### Commit MAC
 
-`getLatestCommit`, `getRepo`, and `listRepoOps` responses carry a [commit](#space-repos). They use the `atproto-space-repo` profile, which covers an `Atproto-Space-Commit` header containing the commit's fields, as shown above.
+`getLatestCommit`, `getRepo`, and `listRepoOps` responses carry a [commit](#space-repos). They use the `atproto-space-commit` profile, which covers an `Atproto-Space-Commit` header containing the commit's fields, as shown above.
 
 The syncer checks that the header matches the commit in the response body, and that `repo` and `space` match the requested repo.
 
@@ -484,7 +484,7 @@ Accept-Signature: mac=("atproto-space-record";sf);keyid="did:key:zDna...";tag="a
 And the host responds with:
 
 ```http
-Atproto-Space-Record: uri="at://did:example:forum/space/com.atmoboards.forum/general/did:example:alice/com.atmoboards.post/3mwcj3b6uak2f", cid="bafyrei..."
+Atproto-Space-Record: uri="at://did:example:forum/space/com.atmoboards.forum/general/did:example:alice/com.atmoboards.thread/3mwcj3b6uak2f", cid="bafyrei..."
 Signature-Input: mac=("atproto-space-record";sf);keyid="did:key:zDna...";tag="atproto-space-record"
 Signature: mac=:ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=:
 Vary: Accept-Signature
@@ -576,11 +576,11 @@ A syncer may discover which blobs a repo references through `com.atproto.space.l
 
 ### Write notifications
 
-Write notifications inform syncers that a repo has been updated, so they can pull promptly instead of continuously polling for updates. A write notification contains no record data, and states only that a given repo in a given space has reached a new `rev` and `data`, or has been removed from the writer set.
+Write notifications inform syncers that a repo has been updated, so they can pull promptly instead of continuously polling for updates. A write notification contains no record data, and states only that a given repo in a given space has reached a new `repoRev` and `data`, or has been removed from the writer set.
 
-When an account writes to a space repo, their PDS sends a `com.atproto.space.notifyRepoUpdate` containing the updated repo's `rev` and `data` to the space host associated with the space authority (unless the authority is the repo account itself). Notification between repo hosts and space hosts is automatic and does not require registration. The space host should reject write notifications for repos which are not authorized to write to the space. Repo hosts are responsible for reliably updating the space host with the latest repo state, and should retry network failures and transient HTTP statuses with exponential backoff, but stop on permanent HTTP errors. These calls are authenticated using service auth. The space host is not expected to verify the integrity or authenticity of the repo `data`. Similar to public repository synchronization, the repo revision (`rev`) is a timestamp identifier (TID) which must increase monotonically (updates with a lower or equal revision should be ignored), and must not correspond to a future timestamp (beyond a short clock skew window).
+When an account writes to a space repo, their PDS sends a `com.atproto.space.notifyRepoUpdate` containing the updated repo's `repoRev` and `data` to the space host associated with the space authority (unless the authority is the repo account itself). Notification between repo hosts and space hosts is automatic and does not require registration. The space host should reject write notifications for repos which are not authorized to write to the space. Repo hosts are responsible for reliably updating the space host with the latest repo state, and should retry network failures and transient HTTP statuses with exponential backoff, but stop on permanent HTTP errors. These calls are authenticated using service auth. The space host is not expected to verify the integrity or authenticity of the repo `data`. Similar to public repository synchronization, the repo revision (`repoRev`) is a timestamp identifier (TID) which must increase monotonically (updates with a lower or equal revision should be ignored), and must not correspond to a future timestamp (beyond a short clock skew window).
 
-When the space host receives a valid write notification, it records the repo's new state, and then sends a `com.atproto.space.notifySpaceUpdate` to all registered syncers. The space host is only responsible for reasonable-effort delivery of this synchronization hop. The space host sequences updates with a separate revision (TID) for the overall space, and indicates the current and previous space revision in each notification. Syncers can detect missed notifications from a gap in space revisions, or from the current space revision returned on each [authorization](#authorizing-space-sync), and request a list of all repos in the space updated "since" an earlier space revision using the `com.atproto.space.listWriters` endpoint. Syncers can use the same endpoint to ensure synchronization state after any duration of downtime.
+When the space host receives a valid write notification, it records the repo's new state, and then sends a `com.atproto.space.notifySpaceUpdate` to all registered syncers. The space host is only responsible for reasonable-effort delivery of this synchronization hop. The space host sequences updates with a separate revision (TID) for the overall space, and indicates the current and previous space revision in each notification. Syncers can detect missed notifications from a gap in space revisions, or from the current space revision returned on each [authorization](#authorizing-space-sync), and request a list of all repos in the space updated "since" an earlier space revision using the `com.atproto.space.listWriters` endpoint. Syncers can use the same endpoint to catch up after downtime. If the last space revision a syncer saw is more than 72 hrs old, entries it missed may have been [garbage collected](#the-sync-boundary-writer-set), so it should instead list the whole writer set and drop any repo that is missing or removed.
 
 When a syncer receives a valid write notification, it performs repo sync directly with the relevant repo host, not through the space host. The space host (if distinct from the repo host) never hosts or distributes record data, only repo update metadata.
 
@@ -600,13 +600,13 @@ Before creating a new registration, the space host calls `confirmRegistration` o
 
 A registration stays active while the credential from its latest authorization is valid. Once that credential expires, the registration lapses. On the next update to the space, however long after, the space host sends the lapsed registration a `notifySpaceUpdate` saying that its registration has expired, in place of the update. It sends nothing more, other than a [deletion](#space-deletion) notice, until the syncer reauthorizes. The space host is responsible for reliably delivering the expiry notice, and should retry network failures and transient HTTP statuses with exponential backoff for at least 72 hrs. If delivery fails, it may drop the registration.
 
-To unregister, a syncer stops reauthorizing and rejects the expiry notice. The space host should also drop a registration early if it [revokes](#credential-expiration-and-revocation) the credential from its latest authorization, or refuses a request that carries it.
+To unregister, a syncer stops reauthorizing and rejects the expiry notice. The space host should also drop a registration early if it [revokes](#credential-expiration-and-revocation) the credential from its latest authorization, or denies the syncer access when it reauthorizes with that registration.
 
 ### The sync boundary (writer set)
 
 Syncing an individual repo requires the syncer to know that the repo exists. To sync a space in full, or to begin syncing a space for the first time, an application requires the set of accounts whose repos hold data in the space. This **writer set** is retrieved from the space authority via `com.atproto.space.listWriters`.
 
-Because it receives updates from every repository in the space, the authority can easily maintain a complete and current record of which repos hold data in the space. Alongside each account, `listWriters` returns that repo's current `rev` and `data`.
+Because it receives updates from every repository in the space, the authority can easily maintain a complete and current record of which repos hold data in the space. Alongside each account, `listWriters` returns that repo's current `repoRev` and `data`.
 
 The writer set is a simple fetch and carries no commit or history. It enumerates accounts that have **written at least one record** into the space, not the broader set of accounts that are merely *allowed* to write (which the authority may not even track) nor those that may only read it. Accounts that may read the space are never enumerated at the protocol-level, though applications may choose to enumerate them through records published in the space.
 
@@ -813,7 +813,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | Method | Role | Type | Auth | Description |
 |---|---|---|---|---|
 | `authorizeSpaceSync` | host | procedure | none (delegation token and client attestation included in request body) | Authorize syncing a space, returning a new space credential and the current space revision, and optionally registering for write notifications. |
-| `listWriters` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `rev` and commit `data`. |
+| `listWriters` | host | query | space credential | List the known repos that hold data in a space, with each repo's current `repoRev` and commit `data`. |
 | `removeWriter` | host | procedure | OAuth (`manage=update`) | Remove an account from a space's [writer set](#the-sync-boundary-writer-set). |
 | `getRecord` | repo | query | OAuth / space credential | Fetch a single record's value. |
 | `listRecords` | repo | query | OAuth / space credential | List the records in a repo, inlining record values by default. Set `excludeValues` for a metadata-only listing. |
@@ -836,7 +836,7 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `getSpace` | host | query | OAuth `read_self` | Describe a space: its identity and current [`policy`](#space-policy). |
 | `exportSpaceMeta` | host | query | OAuth `read_self` | Download a space's host-side state as a [space meta archive](#space-meta-archive). |
 | `importSpaceMeta` | pds | procedure | OAuth (`manage=create` and `manage=update`) | Import a space from a [space meta archive](#space-meta-archive) during [account migration](#account-migration). |
-| `notifyRepoUpdate` | host | procedure | service auth | Notify the space host that a repo advanced, with its current `rev` and `data`. Sent by a repo host. |
+| `notifyRepoUpdate` | host | procedure | service auth | Notify the space host that a repo advanced, with its current `repoRev` and `data`. Sent by a repo host. |
 | `notifySpaceUpdate` | syncer | procedure | none (notify token in request body) | Notify a syncer of an update to a space: a repo advancing or being removed from the writer set (with the space's current and previous revision), a change to the space itself such as deletion, or that the syncer's registration has expired. Sent by the space host to registered syncers. |
 | `confirmRegistration` | syncer | procedure | none (notify token in request body) | Confirm a new notification registration by echoing back a `challenge`. Called by the space host before registering. |
 | `notifyCredentialsRevoked` | repo | procedure | service auth | Notify a repo host that the authority has revoked one or more space credentials, identified by `jti`. |
@@ -943,7 +943,7 @@ When `removeMembers` removes a member, or `putMembers` revokes a member's write 
 |---|---|---|---|
 | `checkAccess` | query | service auth (from the space authority) | Implemented by the `managingApp` (not the PDS). Returns an account's `read` and `write` access to the space. |
 
-The authority passes the space, the account being checked (`repo`), and for reads, the attested `client_id` if one was presented. Write checks carry no client, since `notifyRepoUpdate` does not identify the originating app. The app answers `read` and `write` access as independent values which allows the expression of mixed arrangements, such as a paid newsletter that subscribers may read but only the authority writes to.
+The authority passes the space, the account being checked (`repo`), and the attested `client_id` if one was presented. A check prompted by a write passes no client, since `notifyRepoUpdate` does not identify the originating app. The app answers `read` and `write` access as independent values which allows the expression of mixed arrangements, such as a paid newsletter that subscribers may read but only the authority writes to.
 
 Writers approved by the managing app can be explicitly removed from the writer set with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set).
 
@@ -1042,7 +1042,7 @@ An account's participation in a space is tied to the same DID as its public atpr
 
 **Deactivation & deletion.** Deactivation and deletion function exactly as they do for [public broadcast](https://atproto.com/specs/account#hosting-status). If an account is deleted, downstream services are expected to delete all data associated with the account, whether public or in spaces. If an account is deactivated, downstream services are expected to stop serving all data associated with it, whether public or in spaces.
 
-If a space authority is taken down or deactivated, its spaces are suspended. The space host answers `authorizeSpaceSync` and `listWriters` with `RepoTakendown` or `RepoDeactivated`. Credentials already issued remain valid until they expire, members' repos are unaffected, and the spaces resume if the account is reinstated. Unlike [space deletion](#space-deletion), this is not a signal for syncers to drop the space's data.
+If a space authority is taken down or deactivated, its spaces are suspended. The space host answers `authorizeSpaceSync` and `listWriters` with `RepoTakendown` or `RepoDeactivated`. Credentials already issued remain valid until they expire, members' repos are unaffected, and the spaces resume if the account is reinstated. Registrations lapse but are not dropped, so syncers are prompted to reauthorize on the first update after the spaces resume. Unlike [space deletion](#space-deletion), this is not a signal for syncers to drop the space's data.
 
 **Identity & account events.** Applications currently learn about changes to an account's status or identity (such as its signing key, KEM key, and handle) via events on the firehose (`com.atproto.sync.subscribeRepos`). These same account updates apply to space repos in exactly the same manner. This means an application that syncs only space repos, and no public repositories, still needs to subscribe to a firehose to receive `#account` and `#identity` events. Future work may include an additional subscription endpoint that broadcasts only those two event types without the full stream of public repository commits.
 
