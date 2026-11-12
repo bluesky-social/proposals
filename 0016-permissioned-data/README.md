@@ -481,10 +481,19 @@ The syncer checks that the header matches the commit in the response body, and t
 
 #### Record MAC
 
-`getRecord` responses use the `atproto-space-record` profile, which covers an `Atproto-Space-Record` header containing the record's full [URI](#addressing) and CID:
+`getRecord` responses use the `atproto-space-record` profile, which covers an `Atproto-Space-Record` header containing the record's full [URI](#addressing) and CID. The syncer requests it with:
+
+```http
+Accept-Signature: mac=("atproto-space-record";sf);keyid="did:key:zDna...";tag="atproto-space-record"
+```
+
+And the host responds with:
 
 ```http
 Atproto-Space-Record: uri="at://did:example:forum/space/com.atmoboards.forum/general/did:example:alice/com.atmoboards.post/3mwcj3b6uak2f", cid="bafyrei..."
+Signature-Input: mac=("atproto-space-record";sf);keyid="did:key:zDna...";tag="atproto-space-record"
+Signature: mac=:ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=:
+Vary: Accept-Signature
 ```
 
 The syncer checks that the URI matches the request, computes the CID of the returned record, and checks that it matches the header's CID.
