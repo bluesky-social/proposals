@@ -694,24 +694,24 @@ App service operators (aka, AppViews):
 
 ## OAuth scopes
 
-A user grants an application access to spaces through a `space:` OAuth scope. The scope identifies a set of spaces by their `(authority, spaceType, skey)` identifier and states what the grant permits within them.
+A user grants an application access to spaces through a `space:` OAuth scope. The scope identifies a set of spaces by their `(spaceDid, spaceType, skey)` identifier and states what the grant permits within them.
 
 ```
-space:<spaceType>[?authority=<did>][&skey=<skey>][&collection=<nsid>...][&action=<action>...][&manage=<op>...]
+space:<spaceType>[?spaceDid=<did>][&skey=<skey>][&collection=<nsid>...][&action=<action>...][&manage=<op>...]
 ```
 
 | Parameter | Position | Multiple | Default | Values |
 |---|---|---|---|---|
 | `spaceType` | positional (required) | no | N/A | a space-type NSID, or `*` for any type |
-| `authority` | query | no | `self` | a space authority DID, `self` for the granting user's own DID, or `*` for any authority |
+| `spaceDid` | query | no | `self` | a space authority DID, `self` for the granting user's own DID, or `*` for any authority |
 | `skey` | query | no | `*` | a space key (1–512 chars), or `*` for any key |
 | `collection` | query | yes | the space type lexicons declared `collections` | a record collection NSID, or `*` for any |
 | `action` | query | yes | `read`, `create`, `update`, `delete` | `read_self`, `read`, `create`, `update`, `delete` |
 | `manage` | query | yes | _(none)_ | `create`, `update`, `delete` |
 
-`authority`, `spaceType`, and `skey` select **which spaces** the grant covers, matching the first three segments of a space URI. `action` (and `collection`) govern operations on the **records** in those spaces. `manage` governs operations on the **spaces themselves**.
+`spaceDid`, `spaceType`, and `skey` select **which spaces** the grant covers, matching the first three segments of a space URI. `action` (and `collection`) govern operations on the **records** in those spaces. `manage` governs operations on the **spaces themselves**.
 
-`authority` defaults to `self`, the granting user's own DID, so a bare `space:<spaceType>` grant covers only the user's own spaces of that type. Reaching spaces under other authorities (e.g. a shared forum anchored on an app or another user) requires naming that authority, or `authority=*` for any.
+`spaceDid` defaults to `self`, the granting user's own DID, so a bare `space:<spaceType>` grant covers only the user's own spaces of that type. Reaching spaces under other authorities (e.g. a shared forum anchored on an app or another user) requires naming that authority, or `spaceDid=*` for any.
 
 Similar to permission set declarations (`permission-set` lexicon schemas), space type declarations can be updated at a later point, and the updated `collections` set will apply to any existing client OAuth sessions using the default set. This allows lexicon designers to introduce new record types without requiring users to go through a re-authorization flow.
 
@@ -730,7 +730,7 @@ A **space credential** grants whole-space read/sync access directly, so the read
 
 ### Matching
 
-A request is authorized by a grant when its target space matches the grant's `(authority, spaceType, skey)` (each component equal to the grant's value or covered by its `*`) and the grant permits the requested operation, per the rules below. An `authority` of `self` matches only the space whose authority is the granting user's own DID and is resolved to that DID at grant time.
+A request is authorized by a grant when its target space matches the grant's `(spaceDid, spaceType, skey)` (each component equal to the grant's value or covered by its `*`) and the grant permits the requested operation, per the rules below. A `spaceDid` of `self` matches only the space whose authority is the granting user's own DID and is resolved to that DID at grant time.
 
 **Record operations** are governed by `action`:
 
@@ -752,23 +752,23 @@ The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.
 
 ### Examples
 
-- `space:com.example.bookmarks`: the user's own bookmarks space, with read access and write access to the collections its declaration lists. `authority` defaults to `self`, so this is the typical grant for personal data.
-- `space:com.atmoboards.forum?authority=*`: every `com.atmoboards.forum` space the user is in under any authority, with read access for the entire space and write access to the collections the forum's declaration lists (`com.atmoboards.thread`, `com.atmoboards.reply`). This is the typical grant for a forum client, which reads forums hosted by others.
-- `space:com.atmoboards.forum?authority=*&action=read`: the same spaces, read-only. No `collection` is needed because `read` is not constrained by collection.
-- `space:com.atmoboards.forum?authority=*&action=read_self`: read-only, and only the user's own repo in those forums. Suitable for a personal export or backup tool that should not see other members' posts.
-- `space:com.atmoboards.forum?authority=*&collection=*`: read access plus write access to every collection, not only the declared ones.
-- `space:com.atmoboards.forum?authority=did:plc:abc123&skey=default&collection=com.atmoboards.thread&action=create&action=update`: create and update `com.atmoboards.thread` records in the forum keyed `default` under authority `did:plc:abc123`.
-- `space:com.atmoboards.forum?authority=*&action=read_self&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with read access, but no record-write access.
-- `space:com.atmoboards.forum?authority=*&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with full read/write access to records in the space.
-- `space:*?authority=did:plc:abc123`: read every space under authority `did:plc:abc123`, any type.
+- `space:com.example.bookmarks`: the user's own bookmarks space, with read access and write access to the collections its declaration lists. `spaceDid` defaults to `self`, so this is the typical grant for personal data.
+- `space:com.atmoboards.forum?spaceDid=*`: every `com.atmoboards.forum` space the user is in under any authority, with read access for the entire space and write access to the collections the forum's declaration lists (`com.atmoboards.thread`, `com.atmoboards.reply`). This is the typical grant for a forum client, which reads forums hosted by others.
+- `space:com.atmoboards.forum?spaceDid=*&action=read`: the same spaces, read-only. No `collection` is needed because `read` is not constrained by collection.
+- `space:com.atmoboards.forum?spaceDid=*&action=read_self`: read-only, and only the user's own repo in those forums. Suitable for a personal export or backup tool that should not see other members' posts.
+- `space:com.atmoboards.forum?spaceDid=*&collection=*`: read access plus write access to every collection, not only the declared ones.
+- `space:com.atmoboards.forum?spaceDid=did:plc:abc123&skey=default&collection=com.atmoboards.thread&action=create&action=update`: create and update `com.atmoboards.thread` records in the forum keyed `default` under authority `did:plc:abc123`.
+- `space:com.atmoboards.forum?spaceDid=*&action=read_self&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with read access, but no record-write access.
+- `space:com.atmoboards.forum?spaceDid=*&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with full read/write access to records in the space.
+- `space:*?spaceDid=did:plc:abc123`: read every space under authority `did:plc:abc123`, any type.
 
 ### Consent
 
 A `space:` scope is presented to the user on the OAuth consent screen and requires user-legible text. Each space `type` resolves to a [space type declaration](#space-type-declarations). The consent screen then displays the declaration's `title` (e.g. "AtmoBoards Forum") in place of the raw NSID, falling back to the NSID if no `title` is set.
 
-If a particular `authority` DID is specified in a scope, it should be presented to the user as the bidirectionally linked handle associated with the DID. If no handle bidirectionally validates, then the DID itself should be shown. An `authority` of `self` refers to the user's own account and needs no such presentation.
+If a particular `spaceDid` is specified in a scope, it should be presented to the user as the bidirectionally linked handle associated with the DID. If no handle bidirectionally validates, then the DID itself should be shown. A `spaceDid` of `self` refers to the user's own account and needs no such presentation.
 
-A scope may request wildcard access on both `authority` and `spaceType`. This is a very broad grant, and as such the consent screen should present such a scope with a prominent warning.
+A scope may request wildcard access on both `spaceDid` and `spaceType`. This is a very broad grant, and as such the consent screen should present such a scope with a prominent warning.
 
 ### Permission sets
 
@@ -784,7 +784,7 @@ Space permissions can also be bundled, usually with more user-friendly verbiage,
       "type": "permission",
       "resource": "space",
       "spaceType": "com.atmoboards.forum",
-      "authority": "*",
+      "spaceDid": "*",
       "collection": ["com.atmoboards.thread", "com.atmoboards.reply"],
       "action": ["read", "create"]
     },
@@ -792,9 +792,9 @@ Space permissions can also be bundled, usually with more user-friendly verbiage,
 }
 ```
 
-Within a permission, `"type": "permission"` is the entry discriminator, `"resource": "space"` selects the space resource, and the remaining fields carry the same parameters as the `space:` scope string: `spaceType`, `authority`, `skey`, `collection`, `action`, and `manage`.
+Within a permission, `"type": "permission"` is the entry discriminator, `"resource": "space"` selects the space resource, and the remaining fields carry the same parameters as the `space:` scope string: `spaceType`, `spaceDid`, `skey`, `collection`, `action`, and `manage`.
 
-A set permission must name a concrete space type. In other words, the `spaceType` parameter may **not** be a wildcard inside a permission set. The other parameters may still be wildcards, including `authority` and `collection`. A cross-type grant (`spaceType=*`) is expressible only as a standalone `space:` scope requested directly.
+A set permission must name a concrete space type. In other words, the `spaceType` parameter may **not** be a wildcard inside a permission set. The other parameters may still be wildcards, including `spaceDid` and `collection`. A cross-type grant (`spaceType=*`) is expressible only as a standalone `space:` scope requested directly.
 
 When expressing space resources in a permission set, the `spaceType` must follow the [Namespace Authority](https://atproto.com/specs/permission#namespace-authority) requirements associated with permission sets. However, the collection parameter may be a wildcard or list collections under a different namespace authority than the space and the permission set.
 
