@@ -83,16 +83,16 @@ at:space/{spaceDid}/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
 
 `spaceDid` and `authorDid` must be DIDs. Unlike the authority of a public `at://` URI, neither may be a handle.
 
-Space URIs reuse the `at` scheme, with a `space/` prefix in place of the `//` authority. Public URIs may move to a matching form (e.g. `at:global/`) at the discretion of the [IETF working group](https://datatracker.ietf.org/group/atp/about/).
+Space URIs reuse the `at` scheme, with a `space/` prefix in place of the `//` authority. Public broacast URIs may later move to a matching form (e.g. `at:global/`) at the discretion of the [IETF working group](https://datatracker.ietf.org/group/atp/about/), but public `at://` URIs will remain supported indefinitely. There is no `at://` form of a space URI.
 
-All segments through `rkey` are necessary to identify a **record in a space**. The leading segments through `skey` may be used to reference a **space**:
+A space URI references either a **space** (segments through `skey`) or a **record in a space** (all segments through `rkey`). No other lengths are currently valid, e.g. a URI ending at `spaceDid` or `collection`.
 
 ```
 Space:  at:space/{spaceDid}/{spaceType}/{skey}
 Record: at:space/{spaceDid}/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
 ```
 
-A new `space-ref` Lexicon string format is defined for references to just a space (includes segments up to `skey` and no more).
+Both forms are valid under the existing `at-uri` Lexicon string format. A new `space-ref` format is defined for references to just a space (includes segments up to `skey` and no more).
 
 ### Space authority
 
