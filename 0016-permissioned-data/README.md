@@ -81,6 +81,8 @@ at:space/{spaceDid}/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
 | `collection` | NSID | Record collection |
 | `rkey` | string | Record key |
 
+`spaceDid` and `authorDid` must be DIDs. Unlike the authority of a public `at://` URI, neither may be a handle.
+
 Space URIs reuse the `at` scheme, with a `space/` prefix in place of the `//` authority. Public URIs may move to a matching form (e.g. `at:global/`) at the discretion of the [IETF working group](https://datatracker.ietf.org/group/atp/about/).
 
 All segments through `rkey` are necessary to identify a **record in a space**. The leading segments through `skey` may be used to reference a **space**:
