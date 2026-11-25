@@ -32,10 +32,10 @@ Atproto spaces provide **access control, not confidentiality**. They are [not en
 | Unit of data | Record in a repo | Record in a space repo |
 | Repo scope | One repo per user | One space repo per (user, space) |
 | Record authority | User DID | User DID |
-| URI authority | User DID | Space authority DID |
+| Addressed under | User DID | Space authority DID |
 | Commit | Merkle Search Tree root | LtHash set-hash digest |
 | Commit authenticity | Signature | HMAC |
-| Addressing | Traditional `at://` URI | `at://` URI with `space` segment |
+| Addressing | Traditional `at://` URI | `at:space/` URI |
 | Access | Public | Gated by space credential |
 
 ### Terminology
@@ -66,32 +66,33 @@ Reading or syncing a space requires a **space credential** signed by the declare
 
 ### Addressing
 
-A record in a space is addressed by an `at://` URI with a fixed `space` segment:
+A record in a space is addressed by a URI with a fixed `at:space/` prefix:
 
 ```
-at://{spaceDid}/space/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
+at:space/{spaceDid}/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
 ```
 
 | Component | Type | Description |
 |---|---|---|
 | `spaceDid` | DID | Space authority DID |
-| `space` | literal | Fixed marker identifying this as a space URI |
 | `spaceType` | NSID | Space type |
 | `skey` | string | Space key |
 | `authorDid` | DID | DID of the record's author |
 | `collection` | NSID | Record collection |
 | `rkey` | string | Record key |
 
-Atproto spaces reuse the `at://` scheme rather than defining their own. The literal `space` segment sits where a collection NSID appears in a public atproto URI, so a space URI is distinguished from a public one by that marker in the first path segment under the authority DID. The two are never ambiguous, as a public collection is an NSID, which always contains at least two `.`s, whereas the `space` marker contains none.
+`spaceDid` and `authorDid` must be DIDs. Unlike the authority of a public `at://` URI, neither may be a handle.
 
-All segments through `rkey` are necessary to identify a **record in a space**. The leading segments through `skey` may be used to reference a **space**:
+Space URIs reuse the `at` scheme, with a `space/` prefix in place of the `//` authority. Public broacast URIs may later move to a matching form (e.g. `at:global/`) at the discretion of the [IETF working group](https://datatracker.ietf.org/group/atp/about/), but public `at://` URIs will remain supported indefinitely. There is no `at://` form of a space URI.
+
+A space URI references either a **space** (segments through `skey`) or a **record in a space** (all segments through `rkey`). No other lengths are currently valid, e.g. a URI ending at `spaceDid` or `collection`.
 
 ```
-Space:  at://{spaceDid}/space/{spaceType}/{skey}
-Record: at://{spaceDid}/space/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
+Space:  at:space/{spaceDid}/{spaceType}/{skey}
+Record: at:space/{spaceDid}/{spaceType}/{skey}/{authorDid}/{collection}/{rkey}
 ```
 
-A new `space-ref` Lexicon string format is defined for references to just a space (includes segments up to `skey` and no more).
+Both forms are valid under the existing `at-uri` Lexicon string format. A new `space-ref` format is defined for references to just a space (includes segments up to `skey` and no more).
 
 ### Space authority
 
@@ -191,7 +192,7 @@ Example JWT header and payload (before base64url encoding and signing):
 }
 {
   "iss": "did:example:user_did", // User DID
-  "sub": "at://did:example:space_did/space/com.example.space_type/space_key", // Space being requested
+  "sub": "at:space/did:example:space_did/com.example.space_type/space_key", // Space being requested
   "aud": "did:example:space_did#atproto_pds", // Space host (service fragment of the authority DID)
   "iat": 1738368000, // Issued-at (unix seconds)
   "exp": 1738368060, // iat + 60 (60 seconds)
@@ -248,7 +249,7 @@ Example JWT header and payload (before base64url encoding and signing):
 }
 {
   "iss": "did:example:space_did", // Space authority DID
-  "sub": "at://did:example:space_did/space/com.example.space_type/space_key", // Space the credential reads
+  "sub": "at:space/did:example:space_did/com.example.space_type/space_key", // Space the credential reads
   "cnf": {
     "kid": "did:key:zDna..." // did:key identifying the bound key
   },
@@ -266,7 +267,7 @@ An application gets a space credential by calling `authorizeSpaceSync` on the sp
 
 ```json
 {
-  "space": "at://did:example:space_did/space/com.example.space_type/space_key",
+  "space": "at:space/did:example:space_did/com.example.space_type/space_key",
   "credentialKey": "did:key:zDna...", // required, P-256 did:key to bind the credential to
   "delegationToken": "eyJ...", // optional, when the space requires it
   "clientAttestation": "eyJ...", // optional, when the space requires it
@@ -356,7 +357,7 @@ Each space repo is summarized by a **commit**, which lets a syncer check whether
 |---|---|---|
 | `ver` | integer | commit format version, currently `1` |
 | `repo` | string | author DID of the repo |
-| `space` | string | space URI (`at://authority/space/type/skey`) |
+| `space` | string | space URI (`at:space/authority/type/skey`) |
 | `rev` | string | commit revision (TID) |
 | `data` | bytes | `sha256` of the [LtHash state](#commit-digest) (32 bytes) |
 
@@ -457,7 +458,7 @@ Accept-Signature: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";tag="a
 The host ignores any requested signatures with other tags. It returns an error if `Accept-Signature` is missing or malformed, contains more than one request with the profile's tag, requests other parameters, or has an invalid key. Otherwise, it responds with the covered header and a signature using the requested label and parameters, and lists `Accept-Signature` in `Vary`:
 
 ```http
-Atproto-Space-Commit: ver=1, repo="did:example:alice", space="at://did:example:forum/space/com.atmoboards.forum/general", rev="3mwcj3b6uak2f", data=:q3J0...=:
+Atproto-Space-Commit: ver=1, repo="did:example:alice", space="at:space/did:example:forum/com.atmoboards.forum/general", rev="3mwcj3b6uak2f", data=:q3J0...=:
 Signature-Input: mac=("atproto-space-commit";sf);keyid="did:key:zDna...";tag="atproto-space-commit"
 Signature: mac=:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=:
 Vary: Accept-Signature
@@ -484,7 +485,7 @@ Accept-Signature: mac=("atproto-space-record";sf);keyid="did:key:zDna...";tag="a
 And the host responds with:
 
 ```http
-Atproto-Space-Record: uri="at://did:example:forum/space/com.atmoboards.forum/general/did:example:alice/com.atmoboards.thread/3mwcj3b6uak2f", cid="bafyrei..."
+Atproto-Space-Record: uri="at:space/did:example:forum/com.atmoboards.forum/general/did:example:alice/com.atmoboards.thread/3mwcj3b6uak2f", cid="bafyrei..."
 Signature-Input: mac=("atproto-space-record";sf);keyid="did:key:zDna...";tag="atproto-space-record"
 Signature: mac=:ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=:
 Vary: Accept-Signature
@@ -514,7 +515,7 @@ Here is an example metadata object for a space repo:
   "$type": "atproto-space-repo",
   "ver": 1,                    // commit format version
   "repo": "did:example:alice", // author DID of the repo
-  "space": "at://did:example:forum/space/com.atmoboards.forum/general",
+  "space": "at:space/did:example:forum/com.atmoboards.forum/general",
   "rev": "3mwcj3b6uak2f",      // commit revision (TID)
   "data": 0x...                // 32-byte SHA-256 digest of the LtHash state
 }
@@ -709,7 +710,7 @@ space:<spaceType>[?authority=<did>][&skey=<skey>][&collection=<nsid>...][&action
 | `action` | query | yes | `read`, `create`, `update`, `delete` | `read_self`, `read`, `create`, `update`, `delete` |
 | `manage` | query | yes | _(none)_ | `create`, `update`, `delete` |
 
-`authority`, `spaceType`, and `skey` select **which spaces** the grant covers, matching the first three segments of a space URI. `action` (and `collection`) govern operations on the **records** in those spaces. `manage` governs operations on the **spaces themselves**.
+`authority`, `spaceType`, and `skey` select **which spaces** the grant covers, matching the `{spaceDid}/{spaceType}/{skey}` segments of a space URI. `action` (and `collection`) govern operations on the **records** in those spaces. `manage` governs operations on the **spaces themselves**.
 
 `authority` defaults to `self`, the granting user's own DID, so a bare `space:<spaceType>` grant covers only the user's own spaces of that type. Reaching spaces under other authorities (e.g. a shared forum anchored on an app or another user) requires naming that authority, or `authority=*` for any.
 
@@ -974,7 +975,7 @@ The metadata simply contains the space ref:
 {
   "$type": "atproto-space-meta",
   "ver": 1,
-  "space": "at://did:example:forum/space/com.atmoboards.forum/general"
+  "space": "at:space/did:example:forum/com.atmoboards.forum/general"
 }
 ```
 
