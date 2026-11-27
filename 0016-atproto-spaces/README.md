@@ -1,8 +1,8 @@
 # 0016 Atproto Spaces
 
-*This proposal describes the beta release of Atproto Spaces. It is intended for production use but has seen limited deployment. Details may still change as we get feedback from intial production deployments, though we'll aim to keep changes backwards compatible.*
+*This proposal describes the beta release of Atproto Spaces. It is intended for production use but has seen limited deployment. Details may still change as we get feedback from initial production deployments, though we'll aim to keep changes backwards compatible.*
 
-For discussion, head to the [community forum](https://discourse.atprotocol.community/t/permissioned-data-proposal-discussion/946).
+For discussion, head to the [community forum](https://discourse.atmosphere.community/c/wg/privatedatawg/16).
 
 For a friendlier introduction to the problem space and deeper analysis of design decisions made along the way, see the [permissioned data diary](https://dholms.leaflet.pub/) blog posts and specifically [Reintroducing Spaces](https://dholms.leaflet.pub/3mu3p3ldwrc26).
 
