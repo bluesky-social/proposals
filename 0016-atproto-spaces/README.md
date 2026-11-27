@@ -132,7 +132,7 @@ A space type NSID resolves to a **space type declaration**: a Lexicon definition
 | `type` | `"space"` | yes | Marks this as a space type declaration. Must be the `main` definition. |
 | `description` | string | no | Description of the space type for developers. Not shown to users. |
 | `key` | string | yes | Specifies the recommended space key type (similar to [record key types](https://atproto.com/specs/record-key#record-key-type-tid)) |
-| `title` | string | no | Short human-readable name for the space type, shown to users on consent screens. |
+| `title` | string | no | Short human-readable name for the space type, shown to users on consent screens. At most 64 characters. |
 | `title:lang` | map<lang, string> | no | Localized `title` values by language code. |
 | `collections` | array of NSID | yes | Collections clients should expect in a space of this type. |
 
@@ -343,7 +343,7 @@ An application serving several users of a space does not necessarily need to mai
 
 Short expiration is the primary revocation mechanism for space credentials. When an authority stops authorizing an application, or the application no longer has any authorized user's session available for a space that requires a delegation token, it can no longer reauthorize and its outstanding credentials expire after their remaining lifetime (generally 10 minutes).
 
-For cases that call for faster revocation, an authority MAY send `com.atproto.space.notifyCredentialsRevoked` to repo hosts serving repos in the space. The notification identifies one or more outstanding credentials by `jti`. A repo host MUST reject a credential whose `jti` has been revoked for that space and retain the revocation for at least 60 minutes, after which no credential with that `jti` can remain valid. The method is authenticated with service auth from the space authority.
+For cases that call for faster revocation, an authority MAY send `com.atproto.space.notifyCredentialsRevoked` to repo hosts serving repos in the space. The notification identifies one or more outstanding credentials by `jti`. A repo host MUST reject a credential whose `jti` has been revoked for that space and retain the revocation for at least 60 minutes, after which no credential with that `jti` can remain valid. The method is authenticated with service auth from the space authority addressed to the DID of an account whose repo the receiving host serves.
 
 For large spaces with many participants, revocation is more costly and less necessary. For smaller spaces, revocation may be more important but also fanout is less costly. The authority is in the best position to make this determination. Therefore, it is both the authority's responsibility and prerogative to fan out revocations. Revocation is idempotent so that the authority may safely retry delivery without creating another stored entry.
 
@@ -579,7 +579,7 @@ A syncer may discover which blobs a repo references through `com.atproto.space.l
 
 Write notifications inform syncers that a repo has been updated, so they can pull promptly instead of continuously polling for updates. A write notification contains no record data, and states only that a given repo in a given space has reached a new `repoRev` and `data`, or has been removed from the writer set.
 
-When an account writes to a space repo, their PDS sends a `com.atproto.space.notifyRepoUpdate` containing the updated repo's `repoRev` and `data` to the space host associated with the space authority (unless the authority is the repo account itself). Notification between repo hosts and space hosts is automatic and does not require registration. The space host should reject write notifications for repos which are not authorized to write to the space. Repo hosts are responsible for reliably updating the space host with the latest repo state, and should retry network failures and transient HTTP statuses with exponential backoff, but stop on permanent HTTP errors. These calls are authenticated using service auth. The space host is not expected to verify the integrity or authenticity of the repo `data`. Similar to public repository synchronization, the repo revision (`repoRev`) is a timestamp identifier (TID) which must increase monotonically (updates with a lower or equal revision should be ignored), and must not correspond to a future timestamp (beyond a short clock skew window).
+When an account writes to a space repo, their PDS sends a `com.atproto.space.notifyRepoUpdate` containing the updated repo's `repoRev` and `data` to the space host associated with the space authority (unless the authority is the repo account itself). Notification between repo hosts and space hosts is automatic and does not require registration. The space host should reject write notifications for repos which are not authorized to write to the space. Repo hosts are responsible for reliably updating the space host with the latest repo state, and should retry network failures and transient HTTP statuses with exponential backoff, but stop on permanent HTTP errors. These calls are authenticated using service auth from the writer's DID, addressed to the space authority's DID. The space host is not expected to verify the integrity or authenticity of the repo `data`. Similar to public repository synchronization, the repo revision (`repoRev`) is a timestamp identifier (TID) which must increase monotonically (updates with a lower or equal revision should be ignored), and must not correspond to a future timestamp (beyond a short clock skew window).
 
 When the space host receives a valid write notification, it records the repo's new state, and then sends a `com.atproto.space.notifySpaceUpdate` to all registered syncers. The space host is only responsible for reasonable-effort delivery of this synchronization hop. The space host sequences updates with a separate revision (TID) for the overall space, and indicates the current and previous space revision in each notification. Syncers can detect missed notifications from a gap in space revisions, or from the current space revision returned on each [authorization](#authorizing-space-sync), and request a list of all repos in the space updated "since" an earlier space revision using the `com.atproto.space.listWriters` endpoint. Syncers can use the same endpoint to catch up after downtime. If the last space revision a syncer saw is more than 72 hrs old, entries it missed may have been [garbage collected](#the-sync-boundary-writer-set), so it should instead list the whole writer set and drop any repo that is missing or removed.
 
@@ -621,7 +621,7 @@ The authority can drop an account from the writer set if that account loses writ
 
 ## Space deletion
 
-A space may be deleted by its authority. The authority stops issuing credentials for the space and deletes all records in its own repo in the space.
+A space may be deleted by its authority. The authority stops issuing credentials for the space and deletes its own repo in the space, along with all of its records.
 
 The authority then notifies every syncer [registered](#registering-for-notifications) for the space of the deletion with `com.atproto.space.notifySpaceUpdate`, including those whose registrations have lapsed. The authority is responsible for reliably delivering this notification to each registered syncer, with the same rigor as an expiry notice.
 
@@ -754,12 +754,12 @@ The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.
 ### Examples
 
 - `space:com.example.bookmarks`: the user's own bookmarks space, with read access and write access to the collections its declaration lists. `authority` defaults to `self`, so this is the typical grant for personal data.
-- `space:com.atmoboards.forum?authority=*`: every `com.atmoboards.forum` space the user is in under any authority, with read access for the entire space and write access to the collections the forum's declaration lists (`com.atmoboards.thread`, `com.atmoboards.reply`). This is the typical grant for a forum client, which reads forums hosted by others.
+- `space:com.atmoboards.forum?authority=*`: every `com.atmoboards.forum` space the user is in under any authority, with read access for the entire space and write access to the collections the forum's declaration lists (`com.atmoboards.thread`, `com.atmoboards.reply`, `org.example.reaction`). This is the typical grant for a forum client, which reads forums hosted by others.
 - `space:com.atmoboards.forum?authority=*&action=read`: the same spaces, read-only. No `collection` is needed because `read` is not constrained by collection.
 - `space:com.atmoboards.forum?authority=*&action=read_self`: read-only, and only the user's own repo in those forums. Suitable for a personal export or backup tool that should not see other members' posts.
 - `space:com.atmoboards.forum?authority=*&collection=*`: read access plus write access to every collection, not only the declared ones.
 - `space:com.atmoboards.forum?authority=did:plc:abc123&skey=default&collection=com.atmoboards.thread&action=create&action=update`: create and update `com.atmoboards.thread` records in the forum keyed `default` under authority `did:plc:abc123`.
-- `space:com.atmoboards.forum?authority=*&action=read_self&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with read access, but no record-write access.
+- `space:com.atmoboards.forum?authority=*&action=read_self&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with read access to the user's own repo only, and no record-write access.
 - `space:com.atmoboards.forum?authority=*&manage=update&manage=delete`: administer the user's forums (update and delete the spaces), with full read/write access to records in the space.
 - `space:*?authority=did:plc:abc123`: read every space under authority `did:plc:abc123`, any type.
 
@@ -767,7 +767,7 @@ The `manage` verbs map onto the policy-agnostic lifecycle methods (`com.atproto.
 
 A `space:` scope is presented to the user on the OAuth consent screen and requires user-legible text. Each space `type` resolves to a [space type declaration](#space-type-declarations). The consent screen then displays the declaration's `title` (e.g. "AtmoBoards Forum") in place of the raw NSID, falling back to the NSID if no `title` is set.
 
-If a particular `authority` DID is specified in a scope, it should be presented to the user as the bidirectionally linked handle associated with the DID. If no handle bidirectionally validates, then the DID itself should be shown. An `authority` of `self` refers to the user's own account and needs no such presentation.
+If a particular `authority` DID is specified in a scope, it should be presented to the user as the bidirectionally linked handle associated with the DID. If no handle bidirectionally validates, it should be shown as unverified (e.g. `handle.invalid`), with the DID available to inspect. An `authority` of `self` refers to the user's own account and needs no such presentation.
 
 A scope may request wildcard access on both `authority` and `spaceType`. This is a very broad grant, and as such the consent screen should present such a scope with a prominent warning.
 
@@ -829,8 +829,8 @@ This grouping describes kinds of methods, not separate services. A single servic
 | `deleteRecord` | pds | procedure | OAuth | Delete a record. |
 | `applyWrites` | pds | procedure | OAuth | Apply a batch of creates, updates, and deletes to one repo atomically. |
 | `clearRecords` | pds | procedure | OAuth | Delete every record in the caller's repo in the specified space. |
-| `importRepo` | pds | procedure | OAuth (`create` on every collection in the archive) | Import a space repo from a [STAR archive](#repo-serialization) during [account migration](#account-migration). |
-| `listSpaces` | pds | query | OAuth | The spaces the caller holds a repo in or is the authority of. |
+| `importRepo` | pds | procedure | OAuth (`read`, plus `create`, `update` and `delete` with `collection=*`) | Import a space repo from a [STAR archive](#repo-serialization) during [account migration](#account-migration). |
+| `listSpaces` | pds | query | OAuth (`read_self`) | The spaces the caller holds a repo in or is the authority of. Can be filtered by space type and authority, and the grant must cover the filter, so an unfiltered listing needs `space:*?authority=*`. |
 | `createSpace` | pds | procedure | OAuth (`manage=create`) | Create a space with a given [`policy`](#space-policy); caller becomes the authority. |
 | `updateSpace` | pds | procedure | OAuth (`manage=update`) | Replace a space's [`policy`](#space-policy). |
 | `deleteSpace` | pds | procedure | OAuth (`manage=delete`) | Delete a space. |
@@ -942,15 +942,17 @@ When `removeMembers` removes a member, or `putMembers` revokes a member's write 
 
 | Method | Type | Auth | Description |
 |---|---|---|---|
-| `checkAccess` | query | service auth (from the space authority) | Implemented by the `managingApp` (not the PDS). Returns an account's `read` and `write` access to the space. |
+| `checkAccess` | query | service auth (from the space authority, addressed to `managingApp`) | Implemented by the `managingApp` (not the PDS). Returns an account's `read` and `write` access to the space. |
 
-The authority passes the space, the account being checked (`repo`), and the attested `client_id` if one was presented. A check prompted by a write passes no client, since `notifyRepoUpdate` does not identify the originating app. The app answers `read` and `write` access as independent values which allows the expression of mixed arrangements, such as a paid newsletter that subscribers may read but only the authority writes to.
+The authority passes the space, plus the account being checked (`repo`) and the attested `client_id` when it has them. The app answers `read` and `write` access as independent values which allows the expression of mixed arrangements, such as a paid newsletter that subscribers may read but only the authority writes to.
 
 Writers approved by the managing app can be explicitly removed from the writer set with [`com.atproto.space.removeWriter`](#the-sync-boundary-writer-set).
 
 ## Account migration
 
 Account migration for space data works similarly to migrating a public repository. The main difference is that a user has many space repos. Each space repository can be exported from the old host through `space.getRepo` and imported to the new host through `space.importRepo`. The new host may give an imported repo a new `rev`, while its commit `data` is unchanged. As well, the new host generates its own [KEM key](#kem-key) and publishes it in the account's DID document.
+
+As with the signing key, the new host reserves the KEM key with `com.atproto.server.reserveKemKey` and includes it in `com.atproto.identity.getRecommendedDidCredentials` (as `verificationMethods.atproto_kem`). A PDS should refuse a PLC operation that would drop or replace the KEM key it holds for an account.
 
 For spaces that the account is the authority of, the PDS also holds some configuration state that isn't necessarily published as a record in a space repo (e.g. the space's policy or member list). This is exported and imported as a [space meta archive](#space-meta-archive).
 
@@ -960,7 +962,7 @@ On top of the usual account migration flow:
 2. For each space the account is the authority of, download its [space meta archive](#space-meta-archive) with `exportSpaceMeta` and upload it to the new host with `importSpaceMeta`. This must come before importing the account's own repo in that space.
 3. For each space the account holds a repo in, download its repo with `getRepo` and upload it with `importRepo`, then copy over the blobs it references (via `listBlobs`).
 
-Each import requires a `space:` scope that covers the writes it makes. An import that includes a record the scope does not cover is rejected as a whole, not imported in part. Migrating all of an account's spaces therefore takes very broad scopes.
+An import replaces the account's whole repo in the space, so it requires full access to the space: a `space:` scope granting `read`, plus `create`, `update` and `delete` with `collection=*`. Migrating all of an account's spaces therefore takes very broad scopes.
 
 An account taken down by its host should still be able to export its spaces through `listSpaces`, `exportSpaceMeta`, `getRepo`, `listBlobs`, and `getBlob`, just as it can export its public repo, so that it can migrate away.
 
